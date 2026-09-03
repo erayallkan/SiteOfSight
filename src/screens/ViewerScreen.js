@@ -1,7 +1,7 @@
 /* 3B goruntuleyici ekrani: WebView sahnesi + alt arac cubugu + paneller */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator, Pressable, StyleSheet, Text, View,
+  ActivityIndicator, Modal, Pressable, StyleSheet, Text, View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -218,6 +218,9 @@ export default function ViewerScreen({ route, navigation }) {
     }
   }, [progress, t]);
 
+  const showProgressBar = progress.phase === 'transfer' || progress.phase === 'build';
+  const progressPercent = Math.min(100, Math.max(0, progress.percent || 0));
+
   /* ---------------- Render ---------------- */
 
   const ToolbarButton = ({ icon, iconFamily, onPress, active, badge }) => {
@@ -308,23 +311,37 @@ export default function ViewerScreen({ route, navigation }) {
         </>
       ) : null}
 
-      {/* Yukleme katmani */}
-      {!loaded && !error ? (
-        <View style={[styles.loading, { backgroundColor: colors.overlay }]} pointerEvents="none">
+      {/* Yukleme katmani: sahneyi tamamen orten, ekranin tam merkezinde bir
+          Modal - konteynerin gercek boyu/inset hesaplarina bagli kalmadan
+          her zaman fiziksel ekranin ortasinda cizilir. */}
+      <Modal visible={!loaded && !error} transparent animationType="fade" statusBarTranslucent>
+        <View style={[styles.loadingScreen, { backgroundColor: colors.bg }]}>
           <View style={[styles.loadingCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <ActivityIndicator color={colors.accent} />
-            <Text style={[styles.loadingText, { color: colors.text }]}>{progressLabel}</Text>
+            <View style={[styles.loadingIconWrap, { backgroundColor: colors.accentSoft }]}>
+              <MaterialCommunityIcons name="cube-scan" size={26} color={colors.accent} />
+            </View>
+            <View style={styles.loadingRow}>
+              <ActivityIndicator color={colors.accent} />
+              <Text style={[styles.loadingText, { color: colors.text }]} numberOfLines={1}>{progressLabel}</Text>
+            </View>
+            {showProgressBar ? (
+              <View style={[styles.progressTrack, { backgroundColor: colors.surfaceAlt }]}>
+                <View style={[styles.progressFill, { backgroundColor: colors.accent, width: `${progressPercent}%` }]} />
+              </View>
+            ) : null}
           </View>
         </View>
-      ) : null}
+      </Modal>
 
       {/* Hata katmani */}
-      {error ? (
-        <View style={[styles.loading, { backgroundColor: colors.overlay }]}>
+      <Modal visible={!!error} transparent animationType="fade" statusBarTranslucent>
+        <View style={[styles.loadingScreen, { backgroundColor: colors.bg }]}>
           <View style={[styles.loadingCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <Ionicons name="alert-circle-outline" size={34} color={colors.danger} />
-            <Text style={[styles.errorTitle, { color: colors.text }]}>{t(error.key)}</Text>
-            {error.detail ? (
+            <View style={[styles.loadingIconWrap, { backgroundColor: colors.danger + '22' }]}>
+              <Ionicons name="alert-circle-outline" size={28} color={colors.danger} />
+            </View>
+            {error ? <Text style={[styles.errorTitle, { color: colors.text }]}>{t(error.key)}</Text> : null}
+            {error?.detail ? (
               <Text style={[styles.errorDetail, { color: colors.textFaint }]} numberOfLines={3}>
                 {error.code}: {error.detail}
               </Text>
@@ -337,7 +354,7 @@ export default function ViewerScreen({ route, navigation }) {
             </Pressable>
           </View>
         </View>
-      ) : null}
+      </Modal>
 
       {/* Alt arac cubugu */}
       {loaded && !walking ? (
@@ -457,12 +474,19 @@ const styles = StyleSheet.create({
   pickBannerText: { flex: 1, fontSize: 13, fontWeight: '600' },
   iconBtnSmall: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
 
-  loading: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', padding: 30 },
+  loadingScreen: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 30 },
   loadingCard: {
-    alignItems: 'center', gap: 12, paddingVertical: 26, paddingHorizontal: 28,
-    borderRadius: 18, borderWidth: StyleSheet.hairlineWidth, minWidth: 230,
+    alignItems: 'center', gap: 14, paddingVertical: 28, paddingHorizontal: 30,
+    borderRadius: 22, borderWidth: StyleSheet.hairlineWidth, minWidth: 250,
+    shadowColor: '#000', shadowOpacity: 0.22, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 6,
   },
-  loadingText: { fontSize: 14, fontWeight: '600', textAlign: 'center' },
+  loadingIconWrap: {
+    width: 54, height: 54, borderRadius: 27, alignItems: 'center', justifyContent: 'center',
+  },
+  loadingRow: { flexDirection: 'row', alignItems: 'center', gap: 10, maxWidth: 220 },
+  loadingText: { fontSize: 14, fontWeight: '600', textAlign: 'center', flexShrink: 1 },
+  progressTrack: { width: '100%', height: 6, borderRadius: 3, overflow: 'hidden' },
+  progressFill: { height: 6, borderRadius: 3 },
   errorTitle: { fontSize: 15.5, fontWeight: '700', textAlign: 'center', lineHeight: 21 },
   errorDetail: { fontSize: 11.5, textAlign: 'center' },
   errorBtn: { paddingHorizontal: 22, paddingVertical: 10, borderRadius: 12, marginTop: 6 },
