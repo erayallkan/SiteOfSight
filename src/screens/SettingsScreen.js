@@ -8,7 +8,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { useApp } from '../store/AppContext';
 import { LANGUAGES } from '../i18n';
 import { ScrollArea, SectionTitle, Segmented, SwitchRow, Row } from '../components/ui';
-import { MODELS_DIR, formatSize } from '../services/modelFiles';
+import { MAX_FILE_SIZE_MB, MODELS_DIR, formatSize } from '../services/modelFiles';
 
 export default function SettingsScreen({ navigation }) {
   const { colors, t, settings, update } = useApp();
@@ -94,7 +94,7 @@ export default function SettingsScreen({ navigation }) {
           onValueChange={(v) => update({ showFps: v })}
           icon="speedometer-outline"
         />
-        <Row label={t('settings.maxSize')} value={`${settings.maxFileSizeMb} MB`} icon="document-outline" />
+        <Row label={t('settings.maxSize')} value={`${MAX_FILE_SIZE_MB} MB`} icon="document-outline" />
 
         <SectionTitle>{t('settings.storage')}</SectionTitle>
         <Row label={t('settings.storage')} value={formatSize(usage)} icon="save-outline" />

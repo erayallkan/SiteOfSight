@@ -24,12 +24,23 @@
     lookTarget: new THREE.Vector3(),
     yaw: 0, pitch: 0,
     moveX: 0, moveY: 0, lookX: 0, lookY: 0,
-    speed: 3                 // hiz carpani (walkSpeed komutuyla degisir), varsayilan 3x
+    speed: 3,                // hiz carpani (walkSpeed komutuyla degisir), varsayilan 3x
+    vy: 0,                   // dusey hiz (m/s, asagi yonlu pozitif) - yercekimi/dusme icin
+    falling: false
   };
   var WALK_MOVE_MPS = 1.4;   // insan yuruyus hizi (m/s)
   var WALK_LOOK_RATE = 2.2;  // tam kuvvette radyan/s
   var walkPicking = false;   // true iken bir sonraki dokunma yurume baslangic noktasidir
   var WALK_FOV_WIDE = 90;    // yurume modunda her zaman kullanilan genis-aci FOV
+  var WALK_GROUND_PROBE_UP_M = 0.45;  // ayaklarin bu kadar ustunden taranmaya baslar (m) - normal basamagi kapsar, tavana degmez
+  var WALK_GROUND_PROBE_DOWN_M = 1.2; // oradan asagi bu mesafeye kadar taranir (m) - bundan buyuk kot farklari "bosluk" sayilip dusmeye birakilir
+  var WALK_GRAVITY_MPS2 = 9.8;  // yercekimi ivmesi (m/s^2)
+  var WALK_TERMINAL_MPS = 14;   // dusme hizi bu degerde sabitlenir (m/s)
+  var WALK_FALL_FLOOR_MARGIN_M = 2; // modelin en alt noktasinin bu kadar altinda "taban" varsayilir - sonsuza dusmeyi onler
+  var minimapCam = null;
+  var minimapMarker = null;
+  var MINIMAP_LAYER = 1;
+  var MINIMAP_RADIUS_M = 9; // minimap'in gosterdigi yaricap (m), gercek dunya olcusunde
 
   /** Yurume modunda kamerayi her zaman genis-aci FOV'a ayarlar (hizdan bagimsiz). */
   function updateWalkFov() {
@@ -148,6 +159,7 @@
     // RN ust baslik cubugunun (geri/baslik/sigdir) altinda kalmasin diye sag-uste,
     // ekranin tepesinden belirgin bosluklu yerlestirilir.
     cube = new SOS.ViewCube({ size: 78, marginRight: 16, marginTop: 112, dark: true });
+    setupMinimap();
 
     var env = makeEnv();
     section = new SOS.SectionTool(env);
@@ -229,6 +241,7 @@
     perspCamera.aspect = aspect;
     perspCamera.updateProjectionMatrix();
     updateOrthoFrustum();
+    positionMinimapFrame();
     needsRender = true;
   }
 
@@ -425,7 +438,10 @@
     needsRender = true;
   }
 
-  function highlight(expressID) {
+  var SELECTION_BASE_OPACITY = 0.55;
+  var SELECTION_PULSE_MS = 2200;
+
+  function highlight(expressID, pulse) {
     clearSelection();
     if (!model) return;
     var refs = model.elementIndex.get(expressID);
@@ -434,7 +450,7 @@
     var group = new THREE.Group();
     var planes = activeClipPlanes();
     var mat = new THREE.MeshBasicMaterial({
-      color: 0x4C6FE0, transparent: true, opacity: 0.55,
+      color: 0x4C6FE0, transparent: true, opacity: SELECTION_BASE_OPACITY,
       depthTest: false, side: THREE.DoubleSide,
       clippingPlanes: planes.length ? planes : null
     });
@@ -450,6 +466,7 @@
       group.add(mesh);
     }
     group.userData.highlightMaterial = mat;
+    if (pulse) group.userData.pulseStart = performance.now();
     selectionMesh = group;
     selectionMesh.material = mat;
     scene.add(group);
@@ -457,8 +474,25 @@
     needsRender = true;
   }
 
-  function selectElement(expressID, focus, tapX, tapY) {
-    highlight(expressID);
+  /** Arama sonucu gibi dogrudan (dokunmadan) yapilan secimlerde, kullaniciyi
+   *  modelde gozle bulmasi kolaylassin diye vurgu birkac saniye "nabiz gibi"
+   *  atar (opacity sinuzoidal olarak degisir); normal dokunmali secimde
+   *  eleman zaten parmagin altinda oldugu icin bu gerekmez. */
+  function updateSelectionPulse(now) {
+    if (!selectionMesh || !selectionMesh.userData.pulseStart) return;
+    var elapsed = now - selectionMesh.userData.pulseStart;
+    if (elapsed >= SELECTION_PULSE_MS) {
+      selectionMesh.userData.highlightMaterial.opacity = SELECTION_BASE_OPACITY;
+      selectionMesh.userData.pulseStart = 0;
+      return;
+    }
+    var wave = (Math.sin(elapsed / 130) + 1) / 2; // 0..1
+    selectionMesh.userData.highlightMaterial.opacity = SELECTION_BASE_OPACITY * (0.45 + 0.55 * wave);
+    needsRender = true;
+  }
+
+  function selectElement(expressID, focus, tapX, tapY, pulse) {
+    highlight(expressID, pulse);
     var props = null;
     try { props = model.getProperties(expressID); }
     catch (e) { post('error', { code: 'PROPS_FAILED', message: String(e && e.message || e) }); }
@@ -565,6 +599,7 @@
     walk.yaw = controls.spherical.theta;
     walk.pitch = 0;
     walk.moveX = 0; walk.moveY = 0; walk.lookX = 0; walk.lookY = 0;
+    walk.vy = 0; walk.falling = false;
     clearSelection();
     post('selection', null);
     setProjection('perspective');
@@ -573,6 +608,7 @@
     controls.enabled = false;
     walk.active = true;
     updateWalkFov();
+    setMinimapFrameVisible(true);
     needsRender = true;
   }
 
@@ -584,7 +620,78 @@
       perspCamera.fov = 55;
       perspCamera.updateProjectionMatrix();
     }
+    setMinimapFrameVisible(false);
     fit(1.12);
+  }
+
+  /** Yurunen noktanin XZ konumunda, AYAKLARIN (goz degil) bir miktar ustunden
+   *  asagi dogru isin atarak altindaki en yakin yuzeyi bulur - merdiven/kot
+   *  farki olan yerlerde goz yuksekligini o yuzeye gore otomatik ayarlamak
+   *  icindir. Bulunamazsa (bosluk/veri disi alan) null doner ve mevcut
+   *  yukseklik korunur.
+   *  NOT: probe orijini onceden GOZ yuksekliginden (~1.75m) baslayip 1m daha
+   *  yukari cikiyordu (~2.75m) - alcak tavanli/dar katli modellerde bu, ust
+   *  katin doseme plakasinin ICINE denk gelip isinin oradan asagi baslamasina
+   *  ve "aniden ust kata/catiya zipliyor" hatasina yol aciyordu. Ayaklarin
+   *  hemen ustunden (WALK_GROUND_PROBE_UP_M kadar - normal bir basamak
+   *  yuksekligini karsilayacak kadar kucuk) baslamak bu sorunu ortadan
+   *  kaldirir; tavan/ust kat asla bu araligin icine girmez. */
+  function walkGroundY(x, z, mmPerUnit) {
+    var toUnit = function (m) { return (m * 1000) / mmPerUnit; };
+    var feetY = walk.position.y - walkEyeHeightWorld();
+    var origin = new THREE.Vector3(x, feetY + toUnit(WALK_GROUND_PROBE_UP_M), z);
+    var hit = pickAlongRay(origin, new THREE.Vector3(0, -1, 0));
+    if (!hit) return null;
+    var dist = origin.y - hit.point.y;
+    if (dist > toUnit(WALK_GROUND_PROBE_UP_M + WALK_GROUND_PROBE_DOWN_M)) return null;
+    return hit.point.y;
+  }
+
+  /** Ayaklarin GERCEK altindaki yuzeyi (WALK_GROUND_PROBE_* penceresiyle
+   *  sinirlanmadan) arar - dusme sirasinda "nihayet zemine indik mi" testi
+   *  icindir. Bulunamazsa null doner. */
+  function walkFallLandingY(x, z, feetY) {
+    var hit = pickAlongRay(new THREE.Vector3(x, feetY + 1e-3, z), new THREE.Vector3(0, -1, 0));
+    return hit ? hit.point.y : null;
+  }
+
+  /** Yercekimi/dusme: her karede (hareket joystick'i birakili olsa BILE -
+   *  oyuncu bir bosluga girip dururken de dusmeli) calisir. Once kucuk kot
+   *  farklari icin "basamak takibi" denenir (walkGroundY, mevcut basamak/
+   *  merdiven davranisi - aninda yapisir). Bulunamazsa (buyuk bosluk/uctan
+   *  dusme) ivmelenerek dusme baslar; asagida gercek bir zemine ulasilinca
+   *  hiz sifirlanip oraya oturulur. Model disina dusulurse sonsuza kadar
+   *  dusmesin diye modelin en alt noktasinin biraz altinda hayali bir
+   *  "taban" varsayilir. */
+  function applyWalkGravity(dt, mmPerUnit) {
+    var toUnit = function (m) { return (m * 1000) / mmPerUnit; };
+    var feetY = walk.position.y - walkEyeHeightWorld();
+
+    var stepGround = walkGroundY(walk.position.x, walk.position.z, mmPerUnit);
+    if (stepGround !== null) {
+      walk.position.y = stepGround + walkEyeHeightWorld();
+      walk.vy = 0;
+      walk.falling = false;
+      return;
+    }
+
+    walk.vy = Math.min(walk.vy + WALK_GRAVITY_MPS2 * dt, WALK_TERMINAL_MPS);
+    var newFeetY = feetY - toUnit(walk.vy * dt);
+
+    var landingY = walkFallLandingY(walk.position.x, walk.position.z, feetY);
+    var fallFloorY = model && !model.bbox.isEmpty()
+      ? model.bbox.min.y - toUnit(WALK_FALL_FLOOR_MARGIN_M)
+      : newFeetY;
+    if (landingY === null || landingY < fallFloorY) landingY = fallFloorY;
+
+    if (newFeetY <= landingY) {
+      walk.position.y = landingY + walkEyeHeightWorld();
+      walk.vy = 0;
+      walk.falling = false;
+    } else {
+      walk.position.y = newFeetY + walkEyeHeightWorld();
+      walk.falling = true;
+    }
   }
 
   function updateWalk(dtMs) {
@@ -596,8 +703,10 @@
       walk.yaw -= walk.lookX * WALK_LOOK_RATE * dt;
       walk.pitch = SOS.util.clamp(walk.pitch - walk.lookY * WALK_LOOK_RATE * dt, -1.4, 1.4);
     }
+
+    var mmPerUnit = (model && model._lengthScaleToMm) || 1000;
     if (moved) {
-      var mps = WALK_MOVE_MPS * walk.speed * (1000 / ((model && model._lengthScaleToMm) || 1000));
+      var mps = WALK_MOVE_MPS * walk.speed * (1000 / mmPerUnit);
       var forward = new THREE.Vector3(Math.sin(walk.yaw), 0, Math.cos(walk.yaw));
       // NOT: kamera-sagi = forward x up (Y-up, sag-elli sistem). Onceki
       // (forward.z, 0, -forward.x) bunun TERSIYDI (aslinda sol yon) - bu yuzden
@@ -607,6 +716,10 @@
       walk.position.addScaledVector(right, walk.moveX * mps * dt);
     }
 
+    // Dusey takip + yercekimi: hareket etmese bile (bosluk uzerinde durunca
+    // da dussun diye) her karede calisir.
+    applyWalkGravity(dt, mmPerUnit);
+
     camera.position.copy(walk.position);
     var lookDir = new THREE.Vector3(
       Math.sin(walk.yaw) * Math.cos(walk.pitch),
@@ -615,7 +728,116 @@
     );
     walk.lookTarget.copy(walk.position).add(lookDir);
     camera.lookAt(walk.lookTarget);
-    return moved || looked;
+    return moved || looked || walk.falling;
+  }
+
+  /* ---------------- Yurume modu mini haritasi ---------------- */
+
+  // NOT: bu degerler src/components/WalkthroughOverlay.js'deki joystick
+  // geometrisiyle (SIZE, bottomRow paddingHorizontal/paddingBottom) BIREBIR
+  // AYNI olmali - minimap'i iki joystick arasindaki bosluga tam oturtmak icin
+  // buradan (RN native tarafindan erisilemeyen WebView) o yerlesimi yeniden
+  // hesapliyoruz. Biri degisirse digeri de guncellenmeli.
+  var JOY_SIZE_CSS = 118;
+  var JOY_PAD_H_CSS = 24;      // bottomRow paddingHorizontal
+  var JOY_PAD_BOTTOM_CSS = 76; // bottomRow paddingBottom
+  var MINIMAP_GAP_CSS = 8;     // minimap KARTI ile her bir joystick arasinda birakilacak bosluk
+  var MINIMAP_PAD_CSS = 7;     // kartin cercevesi (border) kalinligi - index.html'deki .frame border'iyla AYNI olmali
+  var MINIMAP_MIN_CSS = 40;    // GL icerigi bu genislikten kucuk kalacaksa minimap tamamen gizlenir
+  var MINIMAP_MAX_CSS = 108;   // GL icerigi (cerceve haric) icin ust sinir
+
+  var safeBottomCss = 0;       // RN guvenli alan (home indicator vb.) - 'layout' komutuyla gelir
+  var minimapSizeCss = 0;      // GL viewport'unun (harita icerigi) kare boyutu - CERCEVE HARIC
+  var minimapMarginCss = 0;    // GL viewport'un ekran altindan uzakligi - CERCEVE HARIC
+
+  /** Minimap kartinin (cerceve + icindeki GL harita karesi) boyutunu/konumunu,
+   *  iki joystick arasindaki GERCEK bosluga (ekran genisligi + guvenli alan)
+   *  gore her seferinde yeniden hesaplar - boylece dar telefonlarda
+   *  joystick'lerle cakismaz, genis telefonlarda da asiri kucuk kalmaz.
+   *  Kart, GL karesinden MINIMAP_PAD_CSS kadar daha genis/yuksek tutulur ki
+   *  harita icerigi cercevenin TAM ICINE sigsin, kenara/kenardan tasmasin. */
+  function positionMinimapFrame() {
+    var gap = window.innerWidth - 2 * (JOY_PAD_H_CSS + JOY_SIZE_CSS);
+    var size = SOS.util.clamp(gap - 2 * MINIMAP_GAP_CSS - 2 * MINIMAP_PAD_CSS, 0, MINIMAP_MAX_CSS);
+    minimapSizeCss = size;
+    var joyCenterFromBottom = safeBottomCss + JOY_PAD_BOTTOM_CSS + JOY_SIZE_CSS / 2;
+    minimapMarginCss = Math.max(0, joyCenterFromBottom - size / 2);
+
+    var el = document.getElementById('minimap');
+    if (!el) return;
+    if (size < MINIMAP_MIN_CSS) { el.style.display = 'none'; return; }
+    var cardSize = size + 2 * MINIMAP_PAD_CSS;
+    el.style.width = cardSize + 'px';
+    el.style.height = cardSize + 'px';
+    el.style.marginLeft = (-cardSize / 2) + 'px';
+    el.style.bottom = (minimapMarginCss - MINIMAP_PAD_CSS) + 'px';
+    if (walk.active) el.style.display = 'block';
+  }
+
+  function setupMinimap() {
+    minimapCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10000);
+    minimapCam.up.set(0, 0, -1); // kuzey-yukari sabit (oyuncu donse de harita donmez)
+    minimapCam.layers.enable(MINIMAP_LAYER);
+
+    var geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute([
+      0, 0, 1,        // ucu ("ileri" yon, +Z)
+      -0.55, 0, -0.65,
+      0.55, 0, -0.65
+    ], 3));
+    geo.setIndex([0, 1, 2]);
+    var mat = new THREE.MeshBasicMaterial({ color: 0xFF5A36, depthTest: false, depthWrite: false, side: THREE.DoubleSide });
+    minimapMarker = new THREE.Mesh(geo, mat);
+    minimapMarker.renderOrder = 9999;
+    minimapMarker.layers.set(MINIMAP_LAYER);
+    minimapMarker.frustumCulled = false;
+    scene.add(minimapMarker);
+  }
+
+  function setMinimapFrameVisible(visible) {
+    if (visible) { positionMinimapFrame(); return; }
+    var el = document.getElementById('minimap');
+    if (el) el.style.display = 'none';
+  }
+
+  /** Ana kareden SONRA, ayni canvas'in kucuk bir kosesine (scissor ile
+   *  sinirlanmis) ikinci bir viewport olarak cizilir - ek render hedefi
+   *  (render target) gerektirmez. Sadece MINIMAP_LAYER'daki mermer/model
+   *  (layer 0, kamera ikisini de gordugu icin) ve oyuncu isaretcisi (layer 1)
+   *  gorunur; joystick'lerin RN tarafindaki dokunma alanlarini kapmamasi icin
+   *  ekranin alt-ortasinda, iki joystick arasindaki bosluga yerlestirilir. */
+  function renderMinimap() {
+    if (!minimapCam || !model || model.bbox.isEmpty() || minimapSizeCss < MINIMAP_MIN_CSS) return;
+    var mmPerUnit = model._lengthScaleToMm || 1000;
+    var r = (MINIMAP_RADIUS_M * 1000) / mmPerUnit;
+    minimapCam.left = -r; minimapCam.right = r; minimapCam.top = r; minimapCam.bottom = -r;
+
+    var span = model.bbox.getSize(new THREE.Vector3()).length() || 10;
+    var height = span + r;
+    minimapCam.position.set(walk.position.x, walk.position.y + height, walk.position.z);
+    minimapCam.near = 0.1;
+    minimapCam.far = height * 2 + r;
+    minimapCam.lookAt(walk.position.x, walk.position.y, walk.position.z);
+    minimapCam.updateProjectionMatrix();
+
+    minimapMarker.position.copy(walk.position);
+    minimapMarker.rotation.y = walk.yaw;
+    minimapMarker.scale.setScalar(r * 0.12);
+
+    // NOT: three.js setViewport/setScissor, renderer.setSize()'a verilenle AYNI
+    // (CSS) birimi bekler ve pixelRatio carpimini KENDI icinde yapar (ana kare
+    // de yukarida window.innerWidth/innerHeight'i HAM kullaniyor) - burada
+    // AYRICA ratio ile carpmak degerleri ikiye katlayip mini haritayi ekran
+    // disina/yanlis koseye kaydiriyordu.
+    var size = Math.round(minimapSizeCss);
+    var x = Math.round((window.innerWidth - size) / 2);
+    var y = Math.round(minimapMarginCss); // WebGL viewport/scissor y=0 ekranin ALTI
+
+    renderer.setScissorTest(true);
+    renderer.setScissor(x, y, size, size);
+    renderer.setViewport(x, y, size, size);
+    renderer.render(scene, minimapCam);
+    renderer.setScissorTest(false);
   }
 
   /* ---------------- Render dongusu ---------------- */
@@ -670,27 +892,31 @@
     if (!walk.active && camera.isOrthographicCamera && moving) updateOrthoFrustum();
 
     var warmingUp = now < warmupUntil;
+    var pulsing = !!(selectionMesh && selectionMesh.userData.pulseStart);
     if (moving) needsRender = true;
     if (warmingUp) needsRender = true;
+    if (pulsing) needsRender = true;
     if (!needsRender) { adaptQuality(dt); return; }
 
     lodTimer += dt;
     if (lodTimer > 250) { lodTimer = 0; updateLod(); }
 
     measure.update();
+    updateSelectionPulse(now);
     cube.sync(camera, walk.active ? walk.lookTarget : controls.target);
 
     try {
       renderer.setViewport(0, 0, window.innerWidth, window.innerHeight);
       renderer.render(scene, camera);
       cube.render(renderer, canvas);
+      if (walk.active) renderMinimap();
     } catch (e) {
       // Bir kare cizimi patlarsa (ör. clipping ile shader recompile hatasi) render
       // dongusunu ASLA durdurma; hatayi bildirip devam et, sahne tamamen kaybolmasin.
       post('error', { code: 'RENDER_FRAME_FAILED', message: String(e && e.message || e) });
     }
 
-    needsRender = moving || (performance.now() < warmupUntil);
+    needsRender = moving || pulsing || (performance.now() < warmupUntil);
     adaptQuality(dt);
   }
 
@@ -761,6 +987,7 @@
 
       walk.active = false;
       walkPicking = false;
+      setMinimapFrameVisible(false);
       controls.enabled = true;
       visibility.showAll();
       visibility.setXray(false);
@@ -798,6 +1025,7 @@
   on('resetView', function () {
     walk.active = false;
     walkPicking = false;
+    setMinimapFrameVisible(false);
     controls.enabled = true;
     visibility.showAll();
     visibility.setXray(false);
@@ -821,6 +1049,14 @@
   });
 
   on('showHud', function (p) { hud.style.display = p.visible ? 'block' : 'none'; needsRender = true; });
+
+  /* RN tarafinin guvenli alan (safe area) alt bosluğu - yurume modu joystick'leri
+   *  bu kadar ekstra yukari kayar (bkz. WalkthroughOverlay SafeAreaView), minimap'i
+   *  onlarla ayni hizada tutmak icin gerekli. */
+  on('layout', function (p) {
+    safeBottomCss = (p && p.safeBottom) || 0;
+    positionMinimapFrame();
+  });
 
   on('section', function (p) { section.set(p.axis, p.t, p.flipped); warmup(800); });
   on('clearSection', function (p) { section.clear(p && p.axis); warmup(800); });
@@ -886,7 +1122,7 @@
 
   on('select', function (p) {
     if (p.id === null || p.id === undefined) { clearSelection(); return; }
-    selectElement(p.id, !!p.focus);
+    selectElement(p.id, !!p.focus, undefined, undefined, !!p.pulse);
   });
 
   on('measureMode', function (p) { measure.setMode(p.mode); });

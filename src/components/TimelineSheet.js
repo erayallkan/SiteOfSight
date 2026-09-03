@@ -22,7 +22,8 @@ export default function TimelineSheet({
   const dateLabel = useMemo(() => {
     if (!dates.length) return '';
     const ts = dates[Math.round(sliderIndex)];
-    return new Date(ts).toLocaleDateString(language === 'tr' ? 'tr-TR' : 'en-US');
+    const locale = language === 'tr' ? 'tr-TR' : language === 'de' ? 'de-DE' : 'en-US';
+    return new Date(ts).toLocaleDateString(locale);
   }, [dates, sliderIndex, language]);
 
   return (

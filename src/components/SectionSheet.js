@@ -33,7 +33,7 @@ function AxisDot({ label, active, onPress }) {
 }
 
 export default function SectionSheet({
-  visible, onClose, section, onSectionChange, onSectionClear,
+  visible, onClose, section, onSectionChange, onSectionClear, onCommit,
 }) {
   const { colors, t } = useApp();
   const axis = section?.axis || null;
@@ -45,14 +45,14 @@ export default function SectionSheet({
           <SectionTitle>{t('viewer.section')}</SectionTitle>
           <View style={styles.headerIcons}>
             <Pressable
-              onPress={() => axis && onSectionChange({ ...section, flipped: !section.flipped })}
+              onPress={() => { if (axis) { onCommit?.(); onSectionChange({ ...section, flipped: !section.flipped }); } }}
               disabled={!axis}
               style={[styles.iconBtn, { borderColor: colors.border, opacity: axis ? 1 : 0.4 }]}
             >
               <Ionicons name="swap-horizontal" size={17} color={colors.text} />
             </Pressable>
             <Pressable
-              onPress={onSectionClear}
+              onPress={() => { if (axis) { onCommit?.(); onSectionClear?.(); } }}
               disabled={!axis}
               style={[styles.iconBtn, { borderColor: colors.border, opacity: axis ? 1 : 0.4 }]}
             >
@@ -67,7 +67,10 @@ export default function SectionSheet({
               key={a.key}
               label={a.label}
               active={axis === a.key}
-              onPress={() => onSectionChange({ axis: a.key, t: section?.t ?? 0.5, flipped: section?.flipped ?? false })}
+              onPress={() => {
+                onCommit?.();
+                onSectionChange({ axis: a.key, t: section?.t ?? 0.5, flipped: section?.flipped ?? false });
+              }}
             />
           ))}
         </View>
@@ -83,6 +86,7 @@ export default function SectionSheet({
               max={1}
               ticks={21}
               onChange={(v) => onSectionChange({ ...section, t: v })}
+              onChangeStart={onCommit}
             />
           </View>
         ) : (

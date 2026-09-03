@@ -5,7 +5,7 @@ import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-na
 import { Ionicons } from '@expo/vector-icons';
 
 import { useApp } from '../store/AppContext';
-import { BottomSheet, Segmented, EmptyState } from './ui';
+import { BottomSheet, Segmented, EmptyState, Pill } from './ui';
 import { typeInfo, prettyType } from '../utils/ifcTypes';
 
 const MAX_SEARCH_RESULTS = 400;
@@ -39,6 +39,8 @@ export default function ModelTreeSheet({
   const [tab, setTab] = useState('structure');
   const [query, setQuery] = useState('');
   const [expanded, setExpanded] = useState(() => new Set());
+  const [multiMode, setMultiMode] = useState(false);
+  const [multiSelected, setMultiSelected] = useState(() => new Map()); // id -> node
 
   // Ilk acilista Proje > Saha > Bina > Kat zincirini acik getir
   useEffect(() => {
@@ -51,6 +53,30 @@ export default function ModelTreeSheet({
     }
     setExpanded(set);
   }, [tree]);
+
+  // Panel her kapandiginda coklu secim durumu sifirlanir - bir sonraki acilista
+  // eski secim/kip "hayalet" gibi kalmasin diye (BottomSheet unmount olmuyor).
+  useEffect(() => {
+    if (!visible) { setMultiMode(false); setMultiSelected(new Map()); }
+  }, [visible]);
+
+  const toggleMultiSelect = (node) => {
+    setMultiSelected((prev) => {
+      const next = new Map(prev);
+      if (next.has(node.id)) next.delete(node.id);
+      else next.set(node.id, node);
+      return next;
+    });
+  };
+
+  const multiSelectedIds = useMemo(() => {
+    const out = [];
+    multiSelected.forEach((node) => {
+      if (node._ids) out.push(...node._ids);
+      else collectIds(node, out);
+    });
+    return Array.from(new Set(out));
+  }, [multiSelected]);
 
   const effectiveExpanded = expanded;
 
@@ -99,6 +125,8 @@ export default function ModelTreeSheet({
     const info = typeInfo(node.type);
     const isSelected = node.id === selectedId;
     const isHidden = hiddenIds?.has(node.id);
+    const isChecked = multiSelected.has(node.id);
+    const canPick = isTypeGroup || node.hasGeometry;
 
     return (
       <View
@@ -106,6 +134,7 @@ export default function ModelTreeSheet({
           styles.row,
           { borderBottomColor: colors.border, paddingLeft: 10 + depth * 16 },
           isSelected && { backgroundColor: colors.accentSoft },
+          multiMode && isChecked && { backgroundColor: colors.accentSoft },
         ]}
       >
         <Pressable
@@ -127,8 +156,13 @@ export default function ModelTreeSheet({
         <Pressable
           style={{ flex: 1 }}
           onPress={() => {
+            if (multiMode) {
+              if (canPick) toggleMultiSelect(node);
+              else if (expandable) toggleExpand(node.id);
+              return;
+            }
             if (isTypeGroup) { toggleExpand(node.id); return; }
-            if (node.hasGeometry) onSelect?.(node.id);
+            if (node.hasGeometry) onSelect?.(node.id, !!query.trim());
             else if (expandable) toggleExpand(node.id);
           }}
         >
@@ -138,44 +172,101 @@ export default function ModelTreeSheet({
           </Text>
         </Pressable>
 
-        <Pressable
-          hitSlop={8}
-          style={styles.action}
-          onPress={() => onIsolate?.(isTypeGroup ? node._ids : collectIds(node, []))}
-        >
-          <Ionicons name="scan-outline" size={17} color={colors.textMuted} />
-        </Pressable>
+        {multiMode ? (
+          canPick ? (
+            <Ionicons
+              name={isChecked ? 'checkbox' : 'square-outline'}
+              size={19}
+              color={isChecked ? colors.accent : colors.textFaint}
+              style={styles.action}
+            />
+          ) : null
+        ) : (
+          <>
+            <Pressable
+              hitSlop={8}
+              style={styles.action}
+              onPress={() => onIsolate?.(isTypeGroup ? node._ids : collectIds(node, []))}
+            >
+              <Ionicons name="scan-outline" size={17} color={colors.textMuted} />
+            </Pressable>
 
-        <Pressable
-          hitSlop={8}
-          style={styles.action}
-          onPress={() => onToggleVisible?.(isTypeGroup ? node._ids : collectIds(node, []), !isHidden)}
-        >
-          <Ionicons name={isHidden ? 'eye-off-outline' : 'eye-outline'} size={17} color={colors.textMuted} />
-        </Pressable>
+            <Pressable
+              hitSlop={8}
+              style={styles.action}
+              onPress={() => onToggleVisible?.(isTypeGroup ? node._ids : collectIds(node, []), !isHidden)}
+            >
+              <Ionicons name={isHidden ? 'eye-off-outline' : 'eye-outline'} size={17} color={colors.textMuted} />
+            </Pressable>
+          </>
+        )}
       </View>
     );
   };
 
+  const multiFooter = multiMode ? (
+    <View style={styles.multiFooter}>
+      <Text style={[styles.multiCount, { color: colors.text }]} numberOfLines={1}>
+        {t('home.itemsSelected', { count: multiSelected.size })}
+      </Text>
+      <View style={styles.multiActions}>
+        <Pill
+          label={t('viewer.isolate')}
+          icon="scan-outline"
+          onPress={() => { if (multiSelectedIds.length) onIsolate?.(multiSelectedIds); }}
+        />
+        <Pill
+          label={t('viewer.hide')}
+          icon="eye-off-outline"
+          onPress={() => { if (multiSelectedIds.length) onToggleVisible?.(multiSelectedIds, true); }}
+        />
+        <Pill
+          label={t('common.clear')}
+          icon="close"
+          onPress={() => setMultiSelected(new Map())}
+        />
+      </View>
+    </View>
+  ) : null;
+
   return (
-    <BottomSheet visible={visible} onClose={onClose} title={t('viewer.tree_')} heightRatio={0.72}>
+    <BottomSheet
+      visible={visible}
+      onClose={onClose}
+      title={t('viewer.tree_')}
+      heightRatio={0.72}
+      footer={multiFooter}
+    >
       <View style={styles.header}>
-        <View style={[styles.searchBox, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
-          <Ionicons name="search" size={16} color={colors.textFaint} />
-          <TextInput
-            value={query}
-            onChangeText={setQuery}
-            placeholder={t('tree.searchPlaceholder')}
-            placeholderTextColor={colors.textFaint}
-            style={[styles.searchInput, { color: colors.text }]}
-            autoCorrect={false}
-            autoCapitalize="none"
-          />
-          {query ? (
-            <Pressable onPress={() => setQuery('')} hitSlop={10}>
-              <Ionicons name="close-circle" size={17} color={colors.textFaint} />
-            </Pressable>
-          ) : null}
+        <View style={styles.searchRow}>
+          <View style={[styles.searchBox, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
+            <Ionicons name="search" size={16} color={colors.textFaint} />
+            <TextInput
+              value={query}
+              onChangeText={setQuery}
+              placeholder={t('tree.searchPlaceholder')}
+              placeholderTextColor={colors.textFaint}
+              style={[styles.searchInput, { color: colors.text }]}
+              autoCorrect={false}
+              autoCapitalize="none"
+            />
+            {query ? (
+              <Pressable onPress={() => setQuery('')} hitSlop={10}>
+                <Ionicons name="close-circle" size={17} color={colors.textFaint} />
+              </Pressable>
+            ) : null}
+          </View>
+
+          <Pressable
+            onPress={() => setMultiMode((v) => !v)}
+            hitSlop={8}
+            style={[
+              styles.multiToggle,
+              { backgroundColor: multiMode ? colors.accent : colors.surfaceAlt, borderColor: colors.border },
+            ]}
+          >
+            <Ionicons name="checkbox-outline" size={17} color={multiMode ? '#fff' : colors.textMuted} />
+          </Pressable>
         </View>
 
         <Segmented
@@ -220,11 +311,19 @@ export default function ModelTreeSheet({
 
 const styles = StyleSheet.create({
   header: { paddingHorizontal: 14, paddingBottom: 10 },
+  searchRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   searchBox: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
+    flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8,
     borderRadius: 12, paddingHorizontal: 12, height: 42, borderWidth: StyleSheet.hairlineWidth,
   },
   searchInput: { flex: 1, fontSize: 14.5, padding: 0 },
+  multiToggle: {
+    width: 42, height: 42, borderRadius: 12, alignItems: 'center', justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  multiFooter: { gap: 10 },
+  multiCount: { fontSize: 13, fontWeight: '600' },
+  multiActions: { flexDirection: 'row', gap: 8 },
   toolRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 10 },
   toolBtn: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   toolText: { fontSize: 13, fontWeight: '600' },

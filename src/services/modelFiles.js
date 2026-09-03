@@ -6,6 +6,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { sampleIfcUri } from './assets';
 
 export const MODELS_DIR = `${FileSystem.documentDirectory}models/`;
+export const MAX_FILE_SIZE_MB = 750;
 
 export class ModelFileError extends Error {
   constructor(code, params) {
@@ -107,7 +108,7 @@ async function importFromUri(sourceUri, originalName, sourceSize, maxSizeMb) {
  * Cihazdan bir IFC secer, uygulamanin models/ klasorune kopyalar.
  * @returns {{name, uri, size}} veya kullanici vazgectiyse null
  */
-export async function pickIfcFile(maxSizeMb = 750) {
+export async function pickIfcFile(maxSizeMb = MAX_FILE_SIZE_MB) {
   // copyToCacheDirectory:false ONEMLI: true olursa expo-document-picker dosyayi
   // Expo Go'nun PAYLASILAN (uygulamamiza ozel olmayan) cache dizinine kopyalar ve
   // expo-file-system o yolu "isn't readable" IOException'i ile reddeder (Expo Go'ya
@@ -131,7 +132,7 @@ export async function pickIfcFile(maxSizeMb = 750) {
  * dosyasini (deep link ile alinan uri) uygulamanin models/ klasorune kopyalar.
  * @returns {{name, uri, size}}
  */
-export async function importSharedIfcFile(sourceUri, maxSizeMb = 750) {
+export async function importSharedIfcFile(sourceUri, maxSizeMb = MAX_FILE_SIZE_MB) {
   const guessedName = decodeURIComponent(sourceUri.split('/').pop().split('?')[0] || 'model.ifc');
   return importFromUri(sourceUri, guessedName, 0, maxSizeMb);
 }

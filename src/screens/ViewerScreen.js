@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator, Modal, Pressable, StyleSheet, Text, View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 
 import { useApp } from '../store/AppContext';
@@ -32,6 +32,7 @@ const ERROR_MESSAGES = {
 export default function ViewerScreen({ route, navigation }) {
   const { model } = route.params;
   const { colors, t, settings, update } = useApp();
+  const insets = useSafeAreaInsets();
   const viewer = useRef(null);
 
   const [progress, setProgress] = useState({ phase: 'boot', percent: 0 });
@@ -44,6 +45,10 @@ export default function ViewerScreen({ route, navigation }) {
   const [sheet, setSheet] = useState(null);          // tree | props | measure | section | display | walk
   const [selected, setSelected] = useState(null);
   const [hiddenIds, setHiddenIds] = useState(() => new Set());
+  const [isolatedIds, setIsolatedIds] = useState(null); // null = izole degil, aksi halde gorunen id listesi
+
+  const [historyPast, setHistoryPast] = useState([]);
+  const [historyFuture, setHistoryFuture] = useState([]);
 
   const [measureMode, setMeasureMode] = useState('none');
   const [measureState, setMeasureState] = useState({ canUndo: false, canRedo: false, items: [] });
@@ -66,10 +71,15 @@ export default function ViewerScreen({ route, navigation }) {
 
   useEffect(() => { touchModel(model.id).catch(() => {}); }, [model.id]);
 
-  const cubeLabels = useMemo(() => (settings.language === 'en'
-    ? { right: 'RIGHT', left: 'LEFT', top: 'TOP', bottom: 'BOTTOM', front: 'FRONT', back: 'BACK' }
-    : { right: 'SAĞ', left: 'SOL', top: 'ÜST', bottom: 'ALT', front: 'ÖN', back: 'ARKA' }
-  ), [settings.language]);
+  const cubeLabels = useMemo(() => {
+    if (settings.language === 'de') {
+      return { right: 'RECHTS', left: 'LINKS', top: 'OBEN', bottom: 'UNTEN', front: 'VORNE', back: 'HINTEN' };
+    }
+    if (settings.language === 'en') {
+      return { right: 'RIGHT', left: 'LEFT', top: 'TOP', bottom: 'BOTTOM', front: 'FRONT', back: 'BACK' };
+    }
+    return { right: 'SAĞ', left: 'SOL', top: 'ÜST', bottom: 'ALT', front: 'ÖN', back: 'ARKA' };
+  }, [settings.language]);
 
   /* ---------------- Viewer olaylari ---------------- */
 
@@ -127,9 +137,61 @@ export default function ViewerScreen({ route, navigation }) {
     setError({ key, detail: err?.message, code: err?.code });
   }, []);
 
+  /* ---------------- Genel geri al / ileri al ----------------
+   * Gorunurluk (gizle/izole), kesit, tel-kafes, x-ray ve patlatma durumunun
+   * tumunu tek bir yigina alir - ölçüm kendi undo/redo'suna sahip oldugu icin
+   * (MeasureSheet) buraya dahil edilmez, kat gecisi de kendi ileri/geri
+   * navigasyonuna sahip oldugu icin (FloorNav) burada tekrarlanmaz. */
+  const captureSnapshot = useCallback(() => ({
+    hiddenIds, isolatedIds, section, wireframe, xray, explode, layerFactors,
+  }), [hiddenIds, isolatedIds, section, wireframe, xray, explode, layerFactors]);
+
+  const pushHistory = useCallback(() => {
+    const snap = captureSnapshot();
+    setHistoryPast((prev) => [...prev, snap]);
+    setHistoryFuture([]);
+  }, [captureSnapshot]);
+
+  const applySnapshot = useCallback((snap) => {
+    setHiddenIds(snap.hiddenIds);
+    setIsolatedIds(snap.isolatedIds);
+    setSection(snap.section);
+    setWireframe(snap.wireframe);
+    setXray(snap.xray);
+    setExplode(snap.explode);
+    setLayerFactors(snap.layerFactors);
+
+    viewer.current?.showAll();
+    if (snap.isolatedIds && snap.isolatedIds.length) viewer.current?.isolate(snap.isolatedIds);
+    else if (snap.hiddenIds.size) viewer.current?.hide(Array.from(snap.hiddenIds));
+    viewer.current?.clearSection();
+    if (snap.section) viewer.current?.setSection(snap.section.axis, snap.section.t, snap.section.flipped);
+    viewer.current?.setWireframe(snap.wireframe);
+    viewer.current?.setXray(snap.xray);
+    viewer.current?.setExplode(snap.explode);
+    ['x', 'y', 'z'].forEach((axis) => viewer.current?.setLayerSeparate(axis, snap.layerFactors[axis] || 0));
+  }, []);
+
+  const undoHistory = useCallback(() => {
+    if (!historyPast.length) return;
+    const last = historyPast[historyPast.length - 1];
+    setHistoryFuture((f) => [captureSnapshot(), ...f]);
+    setHistoryPast((p) => p.slice(0, -1));
+    applySnapshot(last);
+  }, [historyPast, captureSnapshot, applySnapshot]);
+
+  const redoHistory = useCallback(() => {
+    if (!historyFuture.length) return;
+    const next = historyFuture[0];
+    setHistoryPast((p) => [...p, captureSnapshot()]);
+    setHistoryFuture((f) => f.slice(1));
+    applySnapshot(next);
+  }, [historyFuture, captureSnapshot, applySnapshot]);
+
   /* ---------------- Arac eylemleri ---------------- */
 
   const toggleVisibility = useCallback((ids, hide) => {
+    pushHistory();
     setHiddenIds((prev) => {
       const next = new Set(prev);
       ids.forEach((id) => (hide ? next.add(id) : next.delete(id)));
@@ -137,17 +199,21 @@ export default function ViewerScreen({ route, navigation }) {
     });
     if (hide) viewer.current?.hide(ids);
     else viewer.current?.show(ids);
-  }, []);
+  }, [pushHistory]);
 
   const isolate = useCallback((ids) => {
+    pushHistory();
     viewer.current?.isolate(ids);
+    setIsolatedIds(ids);
     setSheet(null);
-  }, []);
+  }, [pushHistory]);
 
   const showAll = useCallback(() => {
+    pushHistory();
     setHiddenIds(new Set());
+    setIsolatedIds(null);
     viewer.current?.showAll();
-  }, []);
+  }, [pushHistory]);
 
   const clearSelection = useCallback(() => {
     setSelected(null);
@@ -158,6 +224,9 @@ export default function ViewerScreen({ route, navigation }) {
    *  temizleyip ilk acilistaki goruntuye dondurur. */
   const resetView = useCallback(() => {
     setHiddenIds(new Set());
+    setIsolatedIds(null);
+    setHistoryPast([]);
+    setHistoryFuture([]);
     setSelected(null);
     setSection(null);
     setWireframe(false);
@@ -296,6 +365,7 @@ export default function ViewerScreen({ route, navigation }) {
         dark={colors.isDark}
         cubeLabels={cubeLabels}
         showFps={settings.showFps}
+        safeBottom={insets.bottom}
         onProgress={handleProgress}
         onLoaded={handleLoaded}
         onSelection={handleSelection}
@@ -329,6 +399,24 @@ export default function ViewerScreen({ route, navigation }) {
                 </Text>
               ) : null}
             </View>
+
+            <Pressable
+              onPress={undoHistory}
+              disabled={!historyPast.length}
+              style={[styles.roundBtn, { backgroundColor: colors.surface, opacity: historyPast.length ? 1 : 0.4 }]}
+              hitSlop={8}
+            >
+              <Ionicons name="arrow-undo" size={19} color={colors.text} />
+            </Pressable>
+
+            <Pressable
+              onPress={redoHistory}
+              disabled={!historyFuture.length}
+              style={[styles.roundBtn, { backgroundColor: colors.surface, opacity: historyFuture.length ? 1 : 0.4 }]}
+              hitSlop={8}
+            >
+              <Ionicons name="arrow-redo" size={19} color={colors.text} />
+            </Pressable>
 
             <Pressable
               onPress={() => viewer.current?.fit()}
@@ -449,7 +537,7 @@ export default function ViewerScreen({ route, navigation }) {
         tree={tree}
         selectedId={selected?.id}
         hiddenIds={hiddenIds}
-        onSelect={(id) => { viewer.current?.select(id, true); setSheet(null); }}
+        onSelect={(id, fromSearch) => { viewer.current?.select(id, true, fromSearch); setSheet(null); }}
         onIsolate={isolate}
         onToggleVisible={toggleVisibility}
         onShowAll={showAll}
@@ -483,15 +571,16 @@ export default function ViewerScreen({ route, navigation }) {
         section={section}
         onSectionChange={applySection}
         onSectionClear={clearSection}
+        onCommit={pushHistory}
       />
 
       <DisplaySheet
         visible={sheet === 'display'}
         onClose={() => setSheet(null)}
         wireframe={wireframe}
-        onWireframeChange={(v) => { setWireframe(v); viewer.current?.setWireframe(v); }}
+        onWireframeChange={(v) => { pushHistory(); setWireframe(v); viewer.current?.setWireframe(v); }}
         xray={xray}
-        onXrayChange={(v) => { setXray(v); viewer.current?.setXray(v); }}
+        onXrayChange={(v) => { pushHistory(); setXray(v); viewer.current?.setXray(v); }}
         explode={explode}
         onExplodeChange={(v) => { setExplode(v); viewer.current?.setExplode(v); }}
         layerFactors={layerFactors}
@@ -499,6 +588,7 @@ export default function ViewerScreen({ route, navigation }) {
           setLayerFactors((prev) => ({ ...prev, [axis]: v }));
           viewer.current?.setLayerSeparate(axis, v);
         }}
+        onDragStart={pushHistory}
       />
 
       <TimelineSheet

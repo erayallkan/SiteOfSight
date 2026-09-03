@@ -58,7 +58,7 @@ export function BottomSheet({ visible, onClose, title, children, heightRatio = 0
 
 /* ---------------- Slider (bagimsiz, PanResponder ile) ---------------- */
 
-export function Slider({ value, onChange, onChangeEnd, min = 0, max = 1, height = 34, trackColor, ticks = 0 }) {
+export function Slider({ value, onChange, onChangeStart, onChangeEnd, min = 0, max = 1, height = 34, trackColor, ticks = 0 }) {
   const { colors } = useApp();
   const [width, setWidth] = useState(0);
   const widthRef = useRef(0);
@@ -87,6 +87,7 @@ export function Slider({ value, onChange, onChangeEnd, min = 0, max = 1, height 
       // container'in olculen sayfa konumunu cikararak her zaman track'e gore
       // sabit bir referans kullanilir.
       onPanResponderGrant: (e) => {
+        onChangeStart?.(valueRef.current); // surukleme baslamadan ONCEKI degerle - geri al icin
         const v = toValue(e.nativeEvent.pageX - containerPageXRef.current);
         grantValueRef.current = v;
         onChange?.(v);

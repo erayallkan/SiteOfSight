@@ -22,6 +22,7 @@ const ViewerCanvas = forwardRef(function ViewerCanvas(props, ref) {
     dark = true,
     cubeLabels,
     showFps = false,
+    safeBottom = 0,
     onReady,
     onProgress,
     onLoaded,
@@ -117,6 +118,7 @@ const ViewerCanvas = forwardRef(function ViewerCanvas(props, ref) {
       case 'ready':
         send('setTheme', { background: backgroundColor, dark, cubeLabels });
         send('showHud', { visible: showFps });
+        send('layout', { safeBottom });
         onReady?.(payload);
         bootViewer();
         break;
@@ -143,7 +145,7 @@ const ViewerCanvas = forwardRef(function ViewerCanvas(props, ref) {
       case 'log': if (__DEV__) console.log('[viewer]', payload?.message); break;
       default: break;
     }
-  }, [backgroundColor, dark, cubeLabels, showFps, modelUri, send, bootViewer, loadModel,
+  }, [backgroundColor, dark, cubeLabels, showFps, safeBottom, modelUri, send, bootViewer, loadModel,
       onReady, onProgress, onLoaded, onSelection, onMeasurement, onMeasureState, onWalkStarted, onFps, onError,
       onThumbnail, onTimelineReady]);
 
@@ -177,7 +179,7 @@ const ViewerCanvas = forwardRef(function ViewerCanvas(props, ref) {
     setTimelineCutoff: (ts) => send('timelineSet', { ts }),
     clearTimeline: () => send('timelineClear', {}),
 
-    select: (id, focus = false) => send('select', { id, focus }),
+    select: (id, focus = false, pulse = false) => send('select', { id, focus, pulse }),
     clearSelection: () => send('select', { id: null }),
 
     setMeasureMode: (mode) => send('measureMode', { mode }),

@@ -20,6 +20,7 @@ export default function DisplaySheet({
   xray, onXrayChange,
   explode, onExplodeChange,
   layerFactors, onLayerAxisChange,
+  onDragStart,
 }) {
   const { colors, t } = useApp();
   const factors = layerFactors || { x: 0, y: 0, z: 0 };
@@ -35,7 +36,7 @@ export default function DisplaySheet({
           <Text style={[styles.meta, { color: colors.textMuted, marginBottom: 6 }]}>
             {t('viewer.explode')}: {Math.round(explode * 100)}%
           </Text>
-          <Slider value={explode} min={0} max={1.5} onChange={onExplodeChange} />
+          <Slider value={explode} min={0} max={1.5} onChange={onExplodeChange} onChangeStart={onDragStart} />
         </View>
 
         <SectionTitle>{t('viewer.explodeLayer')}</SectionTitle>
@@ -50,6 +51,7 @@ export default function DisplaySheet({
               max={1.5}
               trackColor={AXIS_COLORS[a.key]}
               onChange={(v) => onLayerAxisChange?.(a.key, v)}
+              onChangeStart={onDragStart}
             />
           </View>
         ))}

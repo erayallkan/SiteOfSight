@@ -23,15 +23,22 @@ const LOGO_DARK = require('../../assets/branding/logo-dark.png');
 const LOGO_ASPECT = 1533 / 430; // logo-light.png / logo-dark.png genislik-yukseklik orani
 const LOGO_HEIGHT = 34;
 
+const TIME_AGO = {
+  tr: { now: 'az once', min: (n) => `${n} dk once`, hour: (n) => `${n} sa once`, day: (n) => `${n} gun once` },
+  en: { now: 'just now', min: (n) => `${n} min ago`, hour: (n) => `${n} h ago`, day: (n) => `${n} d ago` },
+  de: { now: 'gerade eben', min: (n) => `vor ${n} Min.`, hour: (n) => `vor ${n} Std.`, day: (n) => `vor ${n} Tg.` },
+};
+
 function timeAgo(ts, language) {
+  const dict = TIME_AGO[language] || TIME_AGO.tr;
   const diff = Date.now() - ts;
   const min = Math.round(diff / 60000);
-  if (min < 1) return language === 'en' ? 'just now' : 'az once';
-  if (min < 60) return language === 'en' ? `${min} min ago` : `${min} dk once`;
+  if (min < 1) return dict.now;
+  if (min < 60) return dict.min(min);
   const hours = Math.round(min / 60);
-  if (hours < 24) return language === 'en' ? `${hours} h ago` : `${hours} sa once`;
+  if (hours < 24) return dict.hour(hours);
   const days = Math.round(hours / 24);
-  return language === 'en' ? `${days} d ago` : `${days} gun once`;
+  return dict.day(days);
 }
 
 const upper = (text, language) => (language === 'tr' ? String(text).toLocaleUpperCase('tr-TR') : String(text).toUpperCase());
@@ -173,8 +180,9 @@ export default function HomeScreen({ navigation }) {
     setBusy(true);
     try {
       const file = await prepareSampleModel();
+      const sampleNames = { en: 'Sample Model', de: 'Beispielmodell', tr: 'Ornek Model' };
       const id = await upsertModel({
-        name: language === 'en' ? 'Sample Model' : 'Ornek Model',
+        name: sampleNames[language] || sampleNames.tr,
         fileUri: file.uri,
         sizeBytes: file.size,
         source: 'sample',
@@ -192,7 +200,7 @@ export default function HomeScreen({ navigation }) {
   const pickFile = useCallback(async () => {
     setBusy(true);
     try {
-      const file = await pickIfcFile(settings.maxFileSizeMb);
+      const file = await pickIfcFile();
       if (!file) return;
       const id = await upsertModel({ name: file.name, fileUri: file.uri, sizeBytes: file.size, source: 'device' });
       const record = await getModel(id);
@@ -204,7 +212,7 @@ export default function HomeScreen({ navigation }) {
     } finally {
       setBusy(false);
     }
-  }, [navigation, refresh, settings.maxFileSizeMb, t]);
+  }, [navigation, refresh, t]);
 
   const confirmDelete = useCallback((record) => {
     Alert.alert(t('home.deleteConfirm'), record.name, [

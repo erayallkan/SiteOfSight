@@ -28,11 +28,34 @@
   #crosshair::after { top:50%; left:8px; right:8px; height:2px; margin-top:-1px; }
   #crosshair.snapped { border-color:#2563EB; background:rgba(37,99,235,.22); }
   #crosshair.snapped::before, #crosshair.snapped::after { background:#2563EB; }
+  /* Boyut/konum (width/height/bottom/margin-left) JS ile ayarlanir - bkz.
+     app.js positionMinimapFrame() - iki joystick arasindaki GERCEK bosluga
+     gore hesaplanir, ekran genisligine ve RN guvenli alanina gore degisir.
+     3B icerik (GL) bu kartin icinde, kenarlardan bosluk birakan kucuk bir
+     karede cizilir (renderMinimap) - ".frame" o karenin etrafini "harita"
+     olarak okunacak bir kart gibi cerceveler (hafif koyu leke + kenarlik +
+     golge), ".compass" ise sabit-kuzey yonunu belirten bir rozet. */
+  #minimap { position:absolute; left:50%; display:none; pointer-events:none; }
+  /* Cerceve bir "border" ile cizilir (background DEGIL) - boylece sadece
+     kenar halkasi koyulasir, GL icerigi (harita) ortada tertemiz kalir.
+     Border kalinligi app.js'teki MINIMAP_PAD_CSS ile AYNI olmali. */
+  #minimap .frame {
+    position:absolute; inset:0; border-radius:12px;
+    border:7px solid rgba(15,17,23,.55);
+    box-shadow:0 0 0 1.5px rgba(255,255,255,.55), 0 3px 12px rgba(0,0,0,.4);
+  }
+  #minimap .compass {
+    position:absolute; top:-9px; left:50%; width:18px; height:18px;
+    margin-left:-9px; border-radius:50%;
+    background:rgba(16,18,24,.92); border:1.5px solid rgba(255,255,255,.6);
+    color:#fff; font-size:10px; font-weight:800; line-height:16px; text-align:center;
+  }
 </style>
 </head>
 <body>
   <canvas id="gl"></canvas>
   <div id="overlay"><div id="snap"></div><div id="crosshair"></div><div id="hud"></div></div>
+  <div id="minimap"><div class="frame"></div><div class="compass">N</div></div>
 
   <!-- Vendor: klasik script (ESM DEĞİL) -> file:// altında CORS sorunu yaşanmaz -->
   <script src="./vendor/three.min.js"></script>

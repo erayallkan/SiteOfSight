@@ -15,7 +15,6 @@ const DEFAULTS = {
   language: null,           // null -> cihaz diline gore secilir
   unit: 'mm',               // mm | cm | m
   showFps: false,
-  maxFileSizeMb: 750,
   onboardingDone: false,
 };
 
@@ -25,7 +24,8 @@ function deviceLanguage() {
   try {
     const codes = Localization.getLocales?.() || [];
     const code = codes[0]?.languageCode;
-    return code === 'tr' ? 'tr' : 'en';
+    if (code === 'tr' || code === 'de') return code;
+    return 'en';
   } catch {
     return 'tr';
   }
