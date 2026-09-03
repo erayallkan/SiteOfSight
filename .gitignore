@@ -39,3 +39,7 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# SiteOfSight: uretilen viewer paketleri (npm run vendor && npm run build:viewer)
+assets/viewer/vendor/
+assets/viewer/dist/
