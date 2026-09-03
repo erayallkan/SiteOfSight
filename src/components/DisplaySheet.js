@@ -17,6 +17,7 @@ const AXES = [
 export default function DisplaySheet({
   visible, onClose,
   wireframe, onWireframeChange,
+  xray, onXrayChange,
   explode, onExplodeChange,
   layerFactors, onLayerAxisChange,
 }) {
@@ -28,6 +29,7 @@ export default function DisplaySheet({
       <ScrollArea contentStyle={{ paddingHorizontal: 14 }}>
         <SectionTitle>{t('viewer.display')}</SectionTitle>
         <SwitchRow label={t('viewer.wireframe')} value={wireframe} onValueChange={onWireframeChange} icon="grid-outline" />
+        <SwitchRow label={t('viewer.xray')} value={xray} onValueChange={onXrayChange} icon="body-outline" />
 
         <View style={{ marginTop: 14 }}>
           <Text style={[styles.meta, { color: colors.textMuted, marginBottom: 6 }]}>

@@ -32,6 +32,7 @@ const ViewerCanvas = forwardRef(function ViewerCanvas(props, ref) {
     onFps,
     onError,
     onThumbnail,
+    onTimelineReady,
   } = props;
 
   const webRef = useRef(null);
@@ -138,12 +139,13 @@ const ViewerCanvas = forwardRef(function ViewerCanvas(props, ref) {
       case 'fps': onFps?.(payload); break;
       case 'error': onError?.(payload); break;
       case 'thumbnail': onThumbnail?.(payload); break;
+      case 'timelineReady': onTimelineReady?.(payload); break;
       case 'log': if (__DEV__) console.log('[viewer]', payload?.message); break;
       default: break;
     }
   }, [backgroundColor, dark, cubeLabels, showFps, modelUri, send, bootViewer, loadModel,
       onReady, onProgress, onLoaded, onSelection, onMeasurement, onMeasureState, onWalkStarted, onFps, onError,
-      onThumbnail]);
+      onThumbnail, onTimelineReady]);
 
   useEffect(() => {
     if (booted.current && modelUri && !transferStarted.current) loadModel(modelUri);
@@ -166,6 +168,14 @@ const ViewerCanvas = forwardRef(function ViewerCanvas(props, ref) {
     setWireframe: (enabled) => send('wireframe', { enabled }),
     setExplode: (factor) => send('explode', { factor }),
     setLayerSeparate: (axis, factor) => send('layerSeparate', { axis, factor }),
+    setXray: (enabled) => send('xray', { enabled }),
+
+    showStorey: (id) => send('showStorey', { id }),
+    showAllStoreys: () => send('showAllStoreys', {}),
+
+    buildTimeline: () => send('timelineBuild', {}),
+    setTimelineCutoff: (ts) => send('timelineSet', { ts }),
+    clearTimeline: () => send('timelineClear', {}),
 
     select: (id, focus = false) => send('select', { id, focus }),
     clearSelection: () => send('select', { id: null }),

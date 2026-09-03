@@ -20,7 +20,7 @@ function flatten(node, depth, expanded, out) {
 
 function search(node, query, out) {
   if (out.length >= MAX_SEARCH_RESULTS) return;
-  const hay = `${node.name} ${node.type}`.toLowerCase();
+  const hay = `${node.name} ${node.type} ${node.guid || ''}`.toLowerCase();
   if (hay.includes(query)) out.push({ node, depth: 0, expandable: false });
   for (let i = 0; i < node.children.length; i += 1) search(node.children[i], query, out);
 }

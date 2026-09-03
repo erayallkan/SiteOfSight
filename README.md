@@ -109,19 +109,20 @@ src/
 RN -> WebView (`injectJavaScript` ile `SOS.bridge.cmd(json)`):
 `wasmChunk`, `wasmEnd`, `ifcBegin`, `ifcChunk`, `ifcEnd`, `fit`, `resetView`,
 `viewDirection`, `setTheme`, `section`, `clearSection`, `hide`, `show`, `isolate`,
-`showAll`, `wireframe`, `explode`, `layerSeparate`, `select`, `measureMode`,
+`showAll`, `wireframe`, `xray`, `explode`, `layerSeparate`, `select`, `measureMode`,
 `measureUnit`, `measureUndo`, `measureRedo`, `measureClear`, `showHud`,
-`walkEnter`, `walkExit`, `walkMove`, `walkLook`
+`walkEnter`, `walkExit`, `walkMove`, `walkLook`, `showStorey`, `showAllStoreys`,
+`timelineBuild`, `timelineSet`, `timelineClear`
 
 WebView -> RN (`postMessage`):
 `ready`, `ack`, `booted`, `progress`, `loaded`, `selection`, `measurement`,
-`measureState`, `viewCube`, `fps`, `log`, `error`
+`measureState`, `viewCube`, `fps`, `log`, `error`, `timelineReady`
 
 ---
 
 ## Ozellikler
 
-- **Model agaci** — Proje > Saha > Bina > Kat > Eleman; isim/tip aramasi, "Tip" sekmesi,
+- **Model agaci** — Proje > Saha > Bina > Kat > Eleman; isim/tip/GUID aramasi, "Tip" sekmesi,
   eleman bazli gizle/izole.
 - **Parametrik inceleme** — modele dokun: GUID, IFC tipi, malzeme, sinir kutusu boyutlari,
   miktarlar ve tum Property Set'ler kaydirilabilir panelde.
@@ -131,6 +132,17 @@ WebView -> RN (`postMessage`):
 - **Olcum** — kose / kenar orta noktasi / yuzey merkezi yakalama (her zaman acik),
   mesafe ve aci, undo/redo, gecmis SQLite'a yazilir.
 - **Patlatma** — radyal (merkezden disari) veya katman katman (kat bazinda) ayirma.
+- **X-Ray** — modelin tamami yari saydamlasir, secili eleman opak vurguyla one cikar.
+- **Kat gecisi** — birden fazla `IfcBuildingStorey` iceren modellerde yukari/asagi
+  butonlariyla tek bir kati izole edip ona sigdirir (bkz. `FloorNav.js`).
+- **Zaman tuneli (4D)** — Pset'lerinde ISO tarih (`YYYY-MM-DD`) tasiyan elemanlar
+  taranir, kaydiracla secilen tarihe kadar olanlar gosterilir; tarih tasimayan
+  elemanlar (cogu model) her zaman gorunur kalir. Modelde tarih verisi yoksa
+  bos durum mesaji gosterilir.
+- **Disaridan dosya acma** — baska bir uygulamadan "birlikte ac" / paylas ile
+  gelen `.ifc` dosyalari dogrudan modeller gecmisine eklenip acilir (bkz.
+  `app.json` `ios.infoPlist.CFBundleDocumentTypes` / `android.intentFilters`
+  ve `App.js` `Linking` isleyicisi).
 - **Tema ve dil** — koyu/acik/sistem, Turkce/Ingilizce, ayarlardan degistirilir.
 - **Gecmis** — son acilan modeller yerel veritabanindan listelenir (uzun basip sil).
 
@@ -140,7 +152,7 @@ Cokme yerine anlasilir mesaj gosterilir:
 
 | Durum | Mesaj anahtari |
 | --- | --- |
-| Dosya boyut sinirini asiyor (varsayilan 250 MB) | `errors.tooLarge` |
+| Dosya boyut sinirini asiyor (varsayilan 750 MB) | `errors.tooLarge` |
 | Uzanti `.ifc` degil veya basligi `ISO-10303-21` icermiyor | `errors.notIfc` |
 | Dosya okunamadi / aktarim koptu | `errors.unreadable` |
 | web-ifc dosyayi ayristiramadi | `errors.parseFailed` |
@@ -166,7 +178,10 @@ Metro paketleme (`npx expo export --platform android`) hatasiz tamamlaniyor;
 
 - Buyuk dosyalarda `StreamAllMeshes` senkron calisir; bu asamada ilerleme yuzdesi yerine
   islenen eleman sayisi gosterilir.
-- Walkthrough (birinci sahis gezinme) ve kat kaydirma henuz yok; `tools.js` icindeki
-  `ExplodeTool` deseni izlenerek eklenebilir.
+- Zaman tuneli, tarih bilgisini yalniz `Pset` `NominalValue` degerlerinde ISO
+  formatinda (`YYYY-MM-DD...`) arar; `IfcTask`/`IfcWorkSchedule` gibi yapim
+  programi verisi ayrica islenmez.
+- Deep link (disaridan dosya acma) icin `app.json` degisiklikleri native
+  build'de (`expo prebuild` / EAS) etkin olur; Expo Go'da sinirli test edilebilir.
 - Hesap gerekiyorsa Firebase Auth gibi bir BaaS eklenebilir; mevcut akista
   hicbir veri cihazdan cikmadigi icin bu tamamen opsiyoneldir.

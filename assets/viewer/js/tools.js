@@ -120,6 +120,35 @@ window.SOS = window.SOS || {};
     this.env.forEachMaterial(function (m) { m.wireframe = self.wireframe; });
     this.env.requestRender();
   };
+
+  /** X-ray: modelin tum malzemelerini yari saydam yapar (secim vurgusu HARIC -
+   *  o ayri bir malzemede, depthTest kapali, her zaman ustte cizilir). Orijinal
+   *  opacity/transparent/depthWrite degerleri malzeme uzerinde saklanip kapatilinca
+   *  geri yuklenir. */
+  VisibilityTool.prototype.setXray = function (on) {
+    this.xray = !!on;
+    var model = this.env.model;
+    if (!model) return;
+    for (var g = 0; g < model.groups.length; g++) {
+      var m = model.groups[g].mesh.material;
+      if (this.xray) {
+        if (!m.userData._xrayOrig) {
+          m.userData._xrayOrig = { opacity: m.opacity, transparent: m.transparent, depthWrite: m.depthWrite };
+        }
+        m.transparent = true;
+        m.opacity = 0.16;
+        m.depthWrite = false;
+      } else if (m.userData._xrayOrig) {
+        m.opacity = m.userData._xrayOrig.opacity;
+        m.transparent = m.userData._xrayOrig.transparent;
+        m.depthWrite = m.userData._xrayOrig.depthWrite;
+        delete m.userData._xrayOrig;
+      }
+      m.needsUpdate = true;
+    }
+    this.env.requestRender();
+  };
+
   /* ---------------- Patlatma (Explode) ---------------- */
 
   function ExplodeTool(env) {

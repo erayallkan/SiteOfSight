@@ -62,10 +62,52 @@ async function verifyIfcHeader(uri) {
 }
 
 /**
+ * Bir kaynak URI'deki (content:// / file://) dosyayi uygulamanin models/
+ * klasorune kopyalar, boyut sinirini ve IFC basligini dogrular. Hem elle
+ * dosya secme hem de disaridan (paylas menusu / "birlikte ac") gelen dosyalar
+ * icin ortak yol.
+ * @returns {{name, uri, size}}
+ */
+async function importFromUri(sourceUri, originalName, sourceSize, maxSizeMb) {
+  const name = sanitize(originalName);
+  if (!/\.ifc$/i.test(name)) throw new ModelFileError('errors.notIfc');
+
+  const info = await FileSystem.getInfoAsync(sourceUri, { size: true });
+  const size = info.size || sourceSize || 0;
+  const limitBytes = maxSizeMb * 1024 * 1024;
+  if (size > limitBytes) {
+    throw new ModelFileError('errors.tooLarge', {
+      size: (size / 1024 / 1024).toFixed(1),
+      limit: maxSizeMb,
+    });
+  }
+
+  await ensureDir();
+  const target = `${MODELS_DIR}${Date.now()}_${name}`;
+  try {
+    await FileSystem.copyAsync({ from: sourceUri, to: target });
+  } catch {
+    throw new ModelFileError('errors.unreadable');
+  }
+
+  // Basligi kendi kopyaladigimiz dosyada dogrula (kaynak content:// URI'si kopyalama
+  // sonrasi zaten gecerliligini yitirmis olabilir; ayrica boylece tek bir dosya
+  // uzerinde calisiriz).
+  try {
+    await verifyIfcHeader(target);
+  } catch (e) {
+    await FileSystem.deleteAsync(target, { idempotent: true });
+    throw e;
+  }
+
+  return { name: originalName || name, uri: target, size };
+}
+
+/**
  * Cihazdan bir IFC secer, uygulamanin models/ klasorune kopyalar.
  * @returns {{name, uri, size}} veya kullanici vazgectiyse null
  */
-export async function pickIfcFile(maxSizeMb = 250) {
+export async function pickIfcFile(maxSizeMb = 750) {
   // copyToCacheDirectory:false ONEMLI: true olursa expo-document-picker dosyayi
   // Expo Go'nun PAYLASILAN (uygulamamiza ozel olmayan) cache dizinine kopyalar ve
   // expo-file-system o yolu "isn't readable" IOException'i ile reddeder (Expo Go'ya
@@ -81,38 +123,17 @@ export async function pickIfcFile(maxSizeMb = 250) {
   const file = result.assets && result.assets[0];
   if (!file) return null;
 
-  const name = sanitize(file.name);
-  if (!/\.ifc$/i.test(name)) throw new ModelFileError('errors.notIfc');
+  return importFromUri(file.uri, file.name, file.size, maxSizeMb);
+}
 
-  const info = await FileSystem.getInfoAsync(file.uri, { size: true });
-  const size = info.size || file.size || 0;
-  const limitBytes = maxSizeMb * 1024 * 1024;
-  if (size > limitBytes) {
-    throw new ModelFileError('errors.tooLarge', {
-      size: (size / 1024 / 1024).toFixed(1),
-      limit: maxSizeMb,
-    });
-  }
-
-  await ensureDir();
-  const target = `${MODELS_DIR}${Date.now()}_${name}`;
-  try {
-    await FileSystem.copyAsync({ from: file.uri, to: target });
-  } catch {
-    throw new ModelFileError('errors.unreadable');
-  }
-
-  // Basligi kendi kopyaladigimiz dosyada dogrula (kaynak content:// URI'si kopyalama
-  // sonrasi zaten gecerliligini yitirmis olabilir; ayrica boylece tek bir dosya
-  // uzerinde calisiriz).
-  try {
-    await verifyIfcHeader(target);
-  } catch (e) {
-    await FileSystem.deleteAsync(target, { idempotent: true });
-    throw e;
-  }
-
-  return { name: file.name || name, uri: target, size };
+/**
+ * Baska bir uygulamadan "birlikte ac" / paylas menusuyle gelen bir IFC
+ * dosyasini (deep link ile alinan uri) uygulamanin models/ klasorune kopyalar.
+ * @returns {{name, uri, size}}
+ */
+export async function importSharedIfcFile(sourceUri, maxSizeMb = 750) {
+  const guessedName = decodeURIComponent(sourceUri.split('/').pop().split('?')[0] || 'model.ifc');
+  return importFromUri(sourceUri, guessedName, 0, maxSizeMb);
 }
 
 /** Paketlenmis ornek modeli models/ altina kopyalar (bir kez). */

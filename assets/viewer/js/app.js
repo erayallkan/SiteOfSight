@@ -469,9 +469,9 @@
 
   /* ---------------- Kamera ---------------- */
 
-  function fit(padding) {
+  function fit(padding, targetBox) {
     if (!model || model.bbox.isEmpty()) return;
-    var box = model.bbox;
+    var box = (targetBox && !targetBox.isEmpty()) ? targetBox : model.bbox;
     var center = box.getCenter(new THREE.Vector3());
     var size = box.getSize(new THREE.Vector3());
     var radius = size.length() * 0.5 || 1;
@@ -747,6 +747,7 @@
       walkPicking = false;
       controls.enabled = true;
       visibility.showAll();
+      visibility.setXray(false);
       explode.reset();
       setProjection('perspective');
       // Once bakis yonu, sonra o yone gore sikica cerceveleme
@@ -762,7 +763,8 @@
         stats: stats,
         tree: model.tree,
         unitScaleToMm: model._lengthScaleToMm,
-        bbox: { min: model.bbox.min.toArray(), max: model.bbox.max.toArray() }
+        bbox: { min: model.bbox.min.toArray(), max: model.bbox.max.toArray() },
+        storeys: model.storeysInfo
       });
       // Onizleme gorseli: warmup penceresi ac.ken (frame'ler zorla cizildigi
       // icin framebuffer taze) ama ilk kompozisyon (fit + isik) yerlesmis
@@ -782,6 +784,7 @@
     walkPicking = false;
     controls.enabled = true;
     visibility.showAll();
+    visibility.setXray(false);
     clearSelection();
     post('selection', null);
     section.clear();
@@ -813,6 +816,57 @@
   on('wireframe', function (p) { visibility.setWireframe(p.enabled); });
   on('explode', function (p) { explode.setRadial(p.factor || 0); });
   on('layerSeparate', function (p) { explode.setLayer(p.axis, p.factor || 0); });
+  on('xray', function (p) { visibility.setXray(!!p.enabled); });
+
+  /* Kat gecisi: secilen kati izole edip ona sigdirir - "hizli gezinme"
+   *  icin patlatmadan bagimsiz, ayri bir mod (VisibilityTool.isolate uzerine kurulu). */
+  on('showStorey', function (p) {
+    if (!model || !model.storeyElements) return;
+    var ids = model.storeyElements.get(p.id) || [];
+    visibility.isolate(ids);
+    clearSelection();
+    post('selection', null);
+    if (ids.length) {
+      var box = new THREE.Box3();
+      for (var i = 0; i < ids.length; i++) {
+        var b = model.getElementBox(ids[i]);
+        if (b) box.union(b);
+      }
+      if (!box.isEmpty()) fit(1.3, box);
+    }
+    warmup(600);
+  });
+  on('showAllStoreys', function () {
+    visibility.isolate(null);
+    clearSelection();
+    post('selection', null);
+    fit(1.12);
+    warmup(600);
+  });
+
+  /* 4D zaman tuneli: Pset ozelliklerinde ISO tarihi (YYYY-MM-DD...) bulunan
+   *  elemanlar taranir; tarihi OLMAYAN elemanlar (ör. temel/tasiyici sistem
+   *  disindaki cogu eleman) her zaman gorunur kalir - sadece tarihli
+   *  elemanlar secili kesim tarihine gore gizlenir/gosterilir. */
+  on('timelineBuild', async function () {
+    if (!model) { post('timelineReady', { dates: [], elementsCount: 0 }); return; }
+    try {
+      var result = await model.scanTimelineDates();
+      post('timelineReady', { dates: result.dates, elementsCount: result.elementsCount });
+    } catch (e) {
+      post('error', { code: 'TIMELINE_FAILED', message: String(e && e.message || e) });
+      post('timelineReady', { dates: [], elementsCount: 0 });
+    }
+  });
+  on('timelineSet', function (p) {
+    if (!model || !model._timelineDates) return;
+    visibility.showAll();
+    var hideIds = [];
+    model._timelineDates.forEach(function (ts, id) { if (ts > p.ts) hideIds.push(id); });
+    if (hideIds.length) visibility.hide(hideIds);
+    warmup(400);
+  });
+  on('timelineClear', function () { visibility.showAll(); warmup(400); });
 
   on('select', function (p) {
     if (p.id === null || p.id === undefined) { clearSelection(); return; }

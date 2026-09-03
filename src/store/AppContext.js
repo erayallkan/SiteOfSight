@@ -15,7 +15,7 @@ const DEFAULTS = {
   language: null,           // null -> cihaz diline gore secilir
   unit: 'mm',               // mm | cm | m
   showFps: false,
-  maxFileSizeMb: 250,
+  maxFileSizeMb: 750,
   onboardingDone: false,
 };
 

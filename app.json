@@ -16,7 +16,22 @@
       "bundleIdentifier": "com.siteofsight.app",
       "infoPlist": {
         "UIFileSharingEnabled": true,
-        "LSSupportsOpeningDocumentsInPlace": true
+        "LSSupportsOpeningDocumentsInPlace": true,
+        "CFBundleDocumentTypes": [
+          {
+            "CFBundleTypeName": "IFC Model",
+            "LSHandlerRank": "Owner",
+            "LSItemContentTypes": ["com.siteofsight.ifc"]
+          }
+        ],
+        "UTExportedTypeDeclarations": [
+          {
+            "UTTypeIdentifier": "com.siteofsight.ifc",
+            "UTTypeDescription": "Industry Foundation Classes Model",
+            "UTTypeConformsTo": ["public.data", "public.content"],
+            "UTTypeTagSpecification": { "public.filename-extension": ["ifc"] }
+          }
+        ]
       }
     },
     "android": {
@@ -26,7 +41,17 @@
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
-      }
+      },
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "category": ["DEFAULT", "BROWSABLE"],
+          "data": [
+            { "scheme": "content", "mimeType": "*/*", "pathPattern": ".*\\.ifc" },
+            { "scheme": "file", "mimeType": "*/*", "pathPattern": ".*\\.ifc" }
+          ]
+        }
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"

@@ -15,6 +15,8 @@ import SectionSheet from '../components/SectionSheet';
 import DisplaySheet from '../components/DisplaySheet';
 import SelectionPopup from '../components/SelectionPopup';
 import WalkthroughOverlay from '../components/WalkthroughOverlay';
+import FloorNav from '../components/FloorNav';
+import TimelineSheet from '../components/TimelineSheet';
 import { addMeasurement, setModelStats, setModelThumbnail, touchModel } from '../db/database';
 
 const ERROR_MESSAGES = {
@@ -48,11 +50,19 @@ export default function ViewerScreen({ route, navigation }) {
 
   const [section, setSection] = useState(null);      // { axis, t, flipped }
   const [wireframe, setWireframe] = useState(false);
+  const [xray, setXray] = useState(false);
   const [explode, setExplode] = useState(0);
   const [layerFactors, setLayerFactors] = useState({ x: 0, y: 0, z: 0 });
 
   const [walkPicking, setWalkPicking] = useState(false);
   const [walking, setWalking] = useState(false);
+
+  const [storeys, setStoreys] = useState([]);
+  const [floorIndex, setFloorIndex] = useState(null); // null = tum katlar
+
+  const [timeline, setTimeline] = useState({
+    built: false, loading: false, dates: [], elementsCount: 0, index: null,
+  });
 
   useEffect(() => { touchModel(model.id).catch(() => {}); }, [model.id]);
 
@@ -68,6 +78,7 @@ export default function ViewerScreen({ route, navigation }) {
   const handleLoaded = useCallback((payload) => {
     setTree(payload.tree);
     setStats(payload.stats);
+    setStoreys(payload.storeys || []);
     setModelStats(model.id, payload.stats.elements, payload.stats.triangles).catch(() => {});
     // WebView tarafinda 'loaded' olayindan sonra da shader derlemesi icin bir
     // "warmup" penceresi calisiyor (assets/viewer/js/app.js). Yukleme katmanini
@@ -150,12 +161,51 @@ export default function ViewerScreen({ route, navigation }) {
     setSelected(null);
     setSection(null);
     setWireframe(false);
+    setXray(false);
     setExplode(0);
     setLayerFactors({ x: 0, y: 0, z: 0 });
     setMeasureMode('none');
     setWalkPicking(false);
     setWalking(false);
+    setFloorIndex(null);
+    setTimeline((prev) => ({ ...prev, index: null }));
     viewer.current?.resetView();
+  }, []);
+
+  /* ---------------- Kat gecisi ---------------- */
+
+  const changeFloor = useCallback((index) => {
+    setFloorIndex(index);
+    if (index === null) viewer.current?.showAllStoreys();
+    else viewer.current?.showStorey(storeys[index]?.id);
+  }, [storeys]);
+
+  /* ---------------- Zaman tuneli (4D) ---------------- */
+
+  const requestTimelineBuild = useCallback(() => {
+    setTimeline((prev) => ({ ...prev, loading: true }));
+    viewer.current?.buildTimeline();
+  }, []);
+
+  const handleTimelineReady = useCallback((payload) => {
+    setTimeline({
+      built: true, loading: false,
+      dates: payload?.dates || [], elementsCount: payload?.elementsCount || 0,
+      index: null,
+    });
+  }, []);
+
+  const changeTimelineCutoff = useCallback((idx) => {
+    setTimeline((prev) => {
+      const ts = prev.dates[idx];
+      if (ts !== undefined) viewer.current?.setTimelineCutoff(ts);
+      return { ...prev, index: idx };
+    });
+  }, []);
+
+  const clearTimelineFilter = useCallback(() => {
+    setTimeline((prev) => ({ ...prev, index: null }));
+    viewer.current?.clearTimeline();
   }, []);
 
   /** Kesit araci UI'si tek seferde tek eksen dustunur (secili nokta), ama
@@ -255,6 +305,7 @@ export default function ViewerScreen({ route, navigation }) {
         onFps={(p) => setFps(p.fps)}
         onError={handleError}
         onThumbnail={handleThumbnail}
+        onTimelineReady={handleTimelineReady}
       />
 
       {!walking ? (
@@ -295,6 +346,8 @@ export default function ViewerScreen({ route, navigation }) {
             onHide={() => { if (selected) { toggleVisibility([selected.id], true); clearSelection(); } }}
             onClear={clearSelection}
           />
+
+          <FloorNav storeys={storeys} currentIndex={floorIndex} onChange={changeFloor} />
 
           {walkPicking ? (
             <View style={styles.pickBannerWrap} pointerEvents="box-none">
@@ -372,8 +425,9 @@ export default function ViewerScreen({ route, navigation }) {
             <ToolbarButton
               icon="cube-outline"
               onPress={() => setSheet('display')}
-              active={wireframe || explode > 0 || layerFactors.x > 0 || layerFactors.y > 0 || layerFactors.z > 0}
+              active={wireframe || xray || explode > 0 || layerFactors.x > 0 || layerFactors.y > 0 || layerFactors.z > 0}
             />
+            <ToolbarButton icon="calendar-outline" onPress={() => setSheet('timeline')} active={timeline.index !== null} />
             <ToolbarButton icon="walk-outline" onPress={startWalkPick} active={walkPicking} />
             <ToolbarButton icon="refresh-outline" onPress={resetView} />
           </View>
@@ -436,6 +490,8 @@ export default function ViewerScreen({ route, navigation }) {
         onClose={() => setSheet(null)}
         wireframe={wireframe}
         onWireframeChange={(v) => { setWireframe(v); viewer.current?.setWireframe(v); }}
+        xray={xray}
+        onXrayChange={(v) => { setXray(v); viewer.current?.setXray(v); }}
         explode={explode}
         onExplodeChange={(v) => { setExplode(v); viewer.current?.setExplode(v); }}
         layerFactors={layerFactors}
@@ -443,6 +499,15 @@ export default function ViewerScreen({ route, navigation }) {
           setLayerFactors((prev) => ({ ...prev, [axis]: v }));
           viewer.current?.setLayerSeparate(axis, v);
         }}
+      />
+
+      <TimelineSheet
+        visible={sheet === 'timeline'}
+        onClose={() => setSheet(null)}
+        state={timeline}
+        onRequestBuild={requestTimelineBuild}
+        onCutoffChange={changeTimelineCutoff}
+        onClearFilter={clearTimelineFilter}
       />
     </View>
   );

@@ -29,6 +29,8 @@ window.SOS = window.SOS || {};
     this.elementStorey = new Map();  // expressID -> storey expressID
     this.storeys = [];               // storey expressID'leri, yukseklige gore sirali
     this.storeyOrder = new Map();    // storey expressID -> sira indeksi
+    this.storeysInfo = [];           // [{ id, name }], storeys ile ayni sira - kat gecisi UI'si icin
+    this.storeyElements = new Map(); // storey expressID -> [eleman expressID, ...] - kat gecisi icin
     this.tree = null;
     this.stats = { elements: 0, triangles: 0, groups: 0, ms: 0 };
     this.bbox = new THREE.Box3();
@@ -288,6 +290,7 @@ window.SOS = window.SOS || {};
     // Kat (storey) -> eleman iliskisi: hem agac hem de "katman katman ayirma"
     // patlatma modu icin elementStorey haritasinda ayrica saklanir.
     var elementStorey = new Map();
+    var storeyElements = new Map();
     idsOf(WebIFC.IFCRELCONTAINEDINSPATIALSTRUCTURE).forEach(function (rid) {
       var rel = api.GetLine(modelID, rid, false);
       var p = val(rel.RelatingStructure);
@@ -296,22 +299,30 @@ window.SOS = window.SOS || {};
         var kid = val(kids[i]);
         addChild(p, kid);
         elementStorey.set(kid, p);
+        var list = storeyElements.get(p);
+        if (!list) { list = []; storeyElements.set(p, list); }
+        list.push(kid);
       }
     });
     this.elementStorey = elementStorey;
+    this.storeyElements = storeyElements;
 
     // Katlari yukseklige (Elevation) gore siralayip patlatma icin bir sira indeksi ata
     var storeyIds = idsOf(WebIFC.IFCBUILDINGSTOREY);
     var storeyElevation = storeyIds.map(function (sid) {
-      var elev = 0;
+      var elev = 0, name = null;
       try {
         var line = api.GetLine(modelID, sid, false);
         var e = val(line.Elevation);
         if (typeof e === 'number') elev = e;
+        name = val(line.Name) || val(line.LongName) || null;
       } catch (e) {}
-      return { id: sid, elevation: elev };
+      return { id: sid, elevation: elev, name: name };
     }).sort(function (a, b) { return a.elevation - b.elevation; });
     this.storeys = storeyElevation.map(function (s) { return s.id; });
+    this.storeysInfo = storeyElevation.map(function (s, idx) {
+      return { id: s.id, name: s.name || ('Kat ' + (idx + 1)), elementCount: (storeyElements.get(s.id) || []).length };
+    });
     this.storeyOrder = new Map();
     storeyElevation.forEach(function (s, idx) { self.storeyOrder.set(s.id, idx); });
 
@@ -324,17 +335,19 @@ window.SOS = window.SOS || {};
       visited.add(id);
       nodeCount++;
 
-      var name = null, typeName = 'IFCPRODUCT';
+      var name = null, typeName = 'IFCPRODUCT', guid = null;
       try {
         typeName = self.typeName(api.GetLineType(modelID, id));
         var line = api.GetLine(modelID, id, false);
         name = val(line.Name) || val(line.LongName) || null;
+        guid = val(line.GlobalId) || null;
       } catch (e) {}
 
       var node = {
         id: id,
         name: name || typeName.replace('IFC', ''),
         type: typeName,
+        guid: guid,
         hasGeometry: self.elementIndex.has(id),
         children: []
       };
@@ -527,6 +540,57 @@ window.SOS = window.SOS || {};
     };
   };
 
+  /* ---------------- 4D zaman tuneli ---------------- */
+
+  var ISO_DATE_RE = /^(\d{4})-(\d{2})-(\d{2})/;
+
+  /** Property set'lerde ISO tarihi (YYYY-MM-DD...) formatinda deger tasiyan
+   *  elemanlari tarar; her eleman icin bulunan EN ERKEN tarihi kaydeder.
+   *  Sonuc this._timelineDates (expressID -> ms) uzerinde saklanir; tarih
+   *  ICERMEYEN elemanlar bu haritada yer almaz (bkz. app.js 'timelineSet' -
+   *  boyle elemanlar zaman tunelinden bagimsiz her zaman gorunur kalir). */
+  IFCModel.prototype.scanTimelineDates = async function () {
+    this._ensurePropertyIndex();
+    var api = this.api, modelID = this.modelID;
+    var result = new Map();
+    var defCache = new Map();
+    var ids = Array.from(this._psetIndex.keys());
+
+    for (var idx = 0; idx < ids.length; idx++) {
+      var eid = ids[idx];
+      var defs = this._psetIndex.get(eid) || [];
+      var best = null;
+      for (var d = 0; d < defs.length; d++) {
+        var defId = defs[d];
+        var def = defCache.get(defId);
+        if (def === undefined) {
+          try { def = api.GetLine(modelID, defId, true); } catch (e) { def = null; }
+          defCache.set(defId, def);
+        }
+        if (!def || !def.HasProperties) continue;
+        for (var p = 0; p < def.HasProperties.length; p++) {
+          var prop = def.HasProperties[p];
+          if (!prop || prop.NominalValue === undefined) continue;
+          var v = val(prop.NominalValue);
+          if (typeof v !== 'string') continue;
+          var m = ISO_DATE_RE.exec(v);
+          if (!m) continue;
+          var ts = Date.UTC(+m[1], +m[2] - 1, +m[3]);
+          if (best === null || ts < best) best = ts;
+        }
+      }
+      if (best !== null) result.set(eid, best);
+      if (idx % 500 === 0) {
+        post('progress', { phase: 'timeline', percent: Math.round(100 * idx / Math.max(ids.length, 1)) });
+        await yieldFrame();
+      }
+    }
+
+    this._timelineDates = result;
+    var uniqueTs = Array.from(new Set(Array.from(result.values()))).sort(function (a, b) { return a - b; });
+    return { dates: uniqueTs, elementsCount: result.size };
+  };
+
   IFCModel.prototype.dispose = function () {
     for (var i = 0; i < this.groups.length; i++) {
       var m = this.groups[i].mesh;
@@ -539,6 +603,8 @@ window.SOS = window.SOS || {};
     this.elementStorey.clear();
     this.storeys = [];
     this.storeyOrder.clear();
+    this.storeysInfo = [];
+    this.storeyElements.clear();
     this._propCache.clear();
     if (this.api && this.modelID >= 0) {
       try { this.api.CloseModel(this.modelID); } catch (e) {}
