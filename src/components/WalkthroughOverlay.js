@@ -12,7 +12,7 @@ const KNOB = 40;
 const MAX_OFFSET = SIZE / 2 - KNOB / 2;
 
 const WALK_SPEEDS = [0.5, 0.75, 1, 1.5, 2, 3];
-const WALK_SPEED_DEFAULT_INDEX = WALK_SPEEDS.indexOf(1);
+const WALK_SPEED_DEFAULT_INDEX = WALK_SPEEDS.indexOf(3);
 
 function Joystick({ onChange }) {
   const { colors } = useApp();

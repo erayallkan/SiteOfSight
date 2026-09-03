@@ -24,11 +24,22 @@
     lookTarget: new THREE.Vector3(),
     yaw: 0, pitch: 0,
     moveX: 0, moveY: 0, lookX: 0, lookY: 0,
-    speed: 1                 // hiz carpani (walkSpeed komutuyla degisir)
+    speed: 3                 // hiz carpani (walkSpeed komutuyla degisir), varsayilan 3x
   };
   var WALK_MOVE_MPS = 1.4;   // insan yuruyus hizi (m/s)
   var WALK_LOOK_RATE = 2.2;  // tam kuvvette radyan/s
   var walkPicking = false;   // true iken bir sonraki dokunma yurume baslangic noktasidir
+  var WALK_FOV_WIDE = 90;    // yurume modunda her zaman kullanilan genis-aci FOV
+
+  /** Yurume modunda kamerayi her zaman genis-aci FOV'a ayarlar (hizdan bagimsiz). */
+  function updateWalkFov() {
+    if (!perspCamera) return;
+    if (perspCamera.fov !== WALK_FOV_WIDE) {
+      perspCamera.fov = WALK_FOV_WIDE;
+      perspCamera.updateProjectionMatrix();
+      needsRender = true;
+    }
+  }
 
   /* Olcumde hassas capraz-imlec (crosshair) modu: parmagi surukleme ANINDA
    *  (bekleme suresi olmadan) acilir, boylece basit bir dokunus hala aninda
@@ -542,7 +553,7 @@
 
   function walkEyeHeightWorld() {
     var mmPerUnit = (model && model._lengthScaleToMm) || 1000;
-    return 1650 / mmPerUnit; // ~1.65m insan goz yuksekligi, dunya birimine cevrilir
+    return 1750 / mmPerUnit; // 1.75m insan goz yuksekligi, dunya birimine cevrilir
   }
 
   /** Tiklanan noktada (herhangi bir yuzeyde) yurumeye baslar - mahal/IFCSPACE
@@ -561,6 +572,7 @@
     controls.camera = camera;
     controls.enabled = false;
     walk.active = true;
+    updateWalkFov();
     needsRender = true;
   }
 
@@ -568,6 +580,10 @@
     if (!walk.active) return;
     walk.active = false;
     controls.enabled = true;
+    if (perspCamera) {
+      perspCamera.fov = 55;
+      perspCamera.updateProjectionMatrix();
+    }
     fit(1.12);
   }
 

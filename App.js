@@ -23,7 +23,10 @@ const navigationRef = createNavigationContainerRef();
  *  ekleyip goruntuleyiciye acar - bkz. app.json ios.infoPlist.CFBundleDocumentTypes
  *  ve android.intentFilters. */
 async function handleIncomingFileUrl(url, maxSizeMb, t) {
-  if (!url) return;
+  // Sadece gercek dosya URI'lerini isle (content:// / file://); uygulamanin
+  // kendi baslatma linkini (siteofsight:// veya Expo Go'nun exp://) yoksay -
+  // yoksa her normal acilista "IFC degil" hatasi gosterilir.
+  if (!url || !/^(content|file):/i.test(url)) return;
   try {
     const file = await importSharedIfcFile(url, maxSizeMb);
     const id = await upsertModel({ name: file.name, fileUri: file.uri, sizeBytes: file.size, source: 'device' });
