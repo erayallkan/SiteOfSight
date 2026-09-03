@@ -1,4 +1,4 @@
-/* Yerel SQLite: model gecmisi, olcumler ve kayitli gorunumler.
+/* Yerel SQLite: model gecmisi ve olcumler.
    Sunucu yok - her sey cihazda kalir. */
 import * as SQLite from 'expo-sqlite';
 
@@ -17,8 +17,16 @@ async function openDatabase() {
       source         TEXT    NOT NULL DEFAULT 'device',  -- device | sample
       element_count  INTEGER,
       triangle_count INTEGER,
+      folder_id      INTEGER,                            -- NULL = kok dizin
+      thumbnail_data TEXT,                                -- onizleme goruntusu, ham base64 JPEG
       created_at     INTEGER NOT NULL,
       opened_at      INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS folders (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      name        TEXT    NOT NULL,
+      created_at  INTEGER NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS measurements (
@@ -32,19 +40,17 @@ async function openDatabase() {
       FOREIGN KEY (model_id) REFERENCES models(id) ON DELETE CASCADE
     );
 
-    CREATE TABLE IF NOT EXISTS bookmarks (
-      id          INTEGER PRIMARY KEY AUTOINCREMENT,
-      model_id    INTEGER NOT NULL,
-      name        TEXT    NOT NULL,
-      camera_json TEXT    NOT NULL,
-      created_at  INTEGER NOT NULL,
-      FOREIGN KEY (model_id) REFERENCES models(id) ON DELETE CASCADE
-    );
-
     CREATE INDEX IF NOT EXISTS idx_models_opened ON models(opened_at DESC);
     CREATE INDEX IF NOT EXISTS idx_meas_model ON measurements(model_id);
-    CREATE INDEX IF NOT EXISTS idx_bookmarks_model ON bookmarks(model_id);
   `);
+  // Eski kurulumlarda 'models' tablosu folder_id sutunu olmadan olusmus olabilir;
+  // CREATE TABLE IF NOT EXISTS yeni sutunu eklemez. Sutun zaten varsa hata
+  // sessizce yutulur (SQLite "duplicate column name"). Index, sutun kesin
+  // var oldugundan sonra olusturulur - aksi halde eski kurulumlarda
+  // "no such column: folder_id" ile execAsync bloğu patlar.
+  try { await db.execAsync('ALTER TABLE models ADD COLUMN folder_id INTEGER;'); } catch {}
+  try { await db.execAsync('ALTER TABLE models ADD COLUMN thumbnail_data TEXT;'); } catch {}
+  await db.execAsync('CREATE INDEX IF NOT EXISTS idx_models_folder ON models(folder_id);');
   return db;
 }
 
@@ -85,7 +91,16 @@ export async function setModelStats(id, elementCount, triangleCount) {
   ]);
 }
 
-export async function listModels(limit = 50) {
+/** thumbnailData: ham base64 JPEG (data: on-eki OLMADAN). Dosya olarak degil
+ *  dogrudan DB'de saklanir - Expo Go'nun deneyim klasoru adi cift kodlanmis
+ *  ozel karakterler icerdigi icin (ör. %2540, %252F) o file:// URI'si
+ *  RN Image tarafindan sessizce cozulemiyordu (hatasiz ama bombos gorunuyordu). */
+export async function setModelThumbnail(id, thumbnailData) {
+  const db = await getDb();
+  await db.runAsync('UPDATE models SET thumbnail_data = ? WHERE id = ?', [thumbnailData, id]);
+}
+
+export async function listModels(limit = 500) {
   const db = await getDb();
   return db.getAllAsync('SELECT * FROM models ORDER BY opened_at DESC LIMIT ?', [limit]);
 }
@@ -98,8 +113,44 @@ export async function getModel(id) {
 export async function deleteModel(id) {
   const db = await getDb();
   await db.runAsync('DELETE FROM measurements WHERE model_id = ?', [id]);
-  await db.runAsync('DELETE FROM bookmarks WHERE model_id = ?', [id]);
   await db.runAsync('DELETE FROM models WHERE id = ?', [id]);
+}
+
+/** Birden fazla model id'sini tek seferde siler (toplu silme). */
+export async function deleteModels(ids) {
+  if (!ids || !ids.length) return;
+  const db = await getDb();
+  const placeholders = ids.map(() => '?').join(',');
+  await db.runAsync(`DELETE FROM measurements WHERE model_id IN (${placeholders})`, ids);
+  await db.runAsync(`DELETE FROM models WHERE id IN (${placeholders})`, ids);
+}
+
+/* ---------------- Klasorler ---------------- */
+
+export async function listFolders() {
+  const db = await getDb();
+  return db.getAllAsync('SELECT * FROM folders ORDER BY name COLLATE NOCASE ASC');
+}
+
+export async function createFolder(name) {
+  const db = await getDb();
+  const res = await db.runAsync('INSERT INTO folders (name, created_at) VALUES (?, ?)', [name, Date.now()]);
+  return res.lastInsertRowId;
+}
+
+export async function deleteFolder(id) {
+  const db = await getDb();
+  // Klasordeki modeller silinmez, sadece kok dizine geri tasinir.
+  await db.runAsync('UPDATE models SET folder_id = NULL WHERE folder_id = ?', [id]);
+  await db.runAsync('DELETE FROM folders WHERE id = ?', [id]);
+}
+
+/** Bir grup modeli belirtilen klasore tasir (folderId = null -> kok dizin). */
+export async function moveModelsToFolder(ids, folderId) {
+  if (!ids || !ids.length) return;
+  const db = await getDb();
+  const placeholders = ids.map(() => '?').join(',');
+  await db.runAsync(`UPDATE models SET folder_id = ? WHERE id IN (${placeholders})`, [folderId ?? null, ...ids]);
 }
 
 /* ---------------- Olcumler ---------------- */
@@ -130,26 +181,4 @@ export async function deleteLastMeasurement(modelId) {
     'DELETE FROM measurements WHERE id = (SELECT id FROM measurements WHERE model_id = ? ORDER BY id DESC LIMIT 1)',
     [modelId]
   );
-}
-
-/* ---------------- Kayitli gorunumler ---------------- */
-
-export async function addBookmark(modelId, name, camera) {
-  const db = await getDb();
-  const res = await db.runAsync(
-    'INSERT INTO bookmarks (model_id, name, camera_json, created_at) VALUES (?, ?, ?, ?)',
-    [modelId, name, JSON.stringify(camera), Date.now()]
-  );
-  return res.lastInsertRowId;
-}
-
-export async function listBookmarks(modelId) {
-  const db = await getDb();
-  const rows = await db.getAllAsync('SELECT * FROM bookmarks WHERE model_id = ? ORDER BY id DESC', [modelId]);
-  return rows.map((r) => ({ ...r, camera: JSON.parse(r.camera_json) }));
-}
-
-export async function deleteBookmark(id) {
-  const db = await getDb();
-  await db.runAsync('DELETE FROM bookmarks WHERE id = ?', [id]);
 }

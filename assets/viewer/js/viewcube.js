@@ -16,8 +16,8 @@ window.SOS = window.SOS || {};
   ];
 
   var DEFAULT_LABELS = {
-    right: 'SAG', left: 'SOL', top: 'UST',
-    bottom: 'ALT', front: 'ON', back: 'ARKA'
+    right: 'SAĞ', left: 'SOL', top: 'ÜST',
+    bottom: 'ALT', front: 'ÖN', back: 'ARKA'
   };
 
   // Her yuz icin ayri ton: ust en acik, yanlar orta, alt/arka en koyu -> sahte
@@ -139,14 +139,18 @@ window.SOS = window.SOS || {};
     return { x: x, y: Math.max(y, 0), w: this.size, h: this.size };
   };
 
-  /** Ekranin sag-ust kosesindeki viewport'a ciz. */
+  /** Ekranin sag-ust kosesindeki viewport'a ciz. autoClearColor kapatilarak
+   *  arkadaki ana sahne uzerine dogrudan cizilir; dolu bir arkaplan karesi kalmaz. */
   ViewCube.prototype.render = function (renderer, dom) {
     var r = this.rect(dom);
     renderer.setScissorTest(true);
     renderer.setViewport(r.x, r.y, r.w, r.h);
     renderer.setScissor(r.x, r.y, r.w, r.h);
+    var prevAutoClearColor = renderer.autoClearColor;
+    renderer.autoClearColor = false;
     renderer.clearDepth();
     renderer.render(this.scene, this.camera);
+    renderer.autoClearColor = prevAutoClearColor;
     renderer.setScissorTest(false);
     renderer.setViewport(0, 0, dom.clientWidth, dom.clientHeight);
   };

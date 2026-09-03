@@ -41,7 +41,7 @@ function Root() {
       <StatusBar style={colors.isDark ? 'light' : 'dark'} />
       <Stack.Navigator
         initialRouteName={settings.onboardingDone ? 'Home' : 'Onboarding'}
-        screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg } }}
+        screenOptions={{ headerShown: false, gestureEnabled: false, contentStyle: { backgroundColor: colors.bg } }}
       >
         <Stack.Screen name="Onboarding" component={OnboardingScreen} />
         <Stack.Screen name="Home" component={HomeScreen} />

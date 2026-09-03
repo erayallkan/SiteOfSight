@@ -1,10 +1,13 @@
-/* Olcum arac kutusu: mod secimi, snap, birim, undo/redo ve olcum gecmisi */
+/* Olcum arac kutusu: mod secimi, birim, undo/redo ve olcum gecmisi.
+   Kose/kenar yakalama her zaman acik. */
 import React from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { useApp } from '../store/AppContext';
-import { BottomSheet, Segmented, SwitchRow, SectionTitle, EmptyState } from './ui';
+import { BottomSheet, Segmented, SectionTitle, EmptyState } from './ui';
+
+const ITEM_ICON = { distance: 'resize-outline', angle: 'triangle-outline', laser: 'scan-outline' };
 
 const UNITS = [
   { key: 'mm', label: 'mm' },
@@ -13,8 +16,8 @@ const UNITS = [
 ];
 
 export default function MeasureSheet({
-  visible, onClose, mode, snap, unit, state,
-  onModeChange, onSnapChange, onUnitChange, onUndo, onRedo, onClear,
+  visible, onClose, mode, unit, state,
+  onModeChange, onUnitChange, onUndo, onRedo, onClear,
 }) {
   const { colors, t } = useApp();
   const items = state?.items || [];
@@ -43,18 +46,17 @@ export default function MeasureSheet({
             { key: 'none', label: t('measure.off') },
             { key: 'distance', label: t('measure.distance') },
             { key: 'angle', label: t('measure.angle') },
+            { key: 'laser', label: t('measure.laser') },
           ]}
         />
-        {mode !== 'none' ? (
+        {mode === 'laser' ? (
+          <Text style={[styles.hint, { color: colors.textMuted }]}>{t('measure.hintLaser')}</Text>
+        ) : mode !== 'none' ? (
           <Text style={[styles.hint, { color: colors.textMuted }]}>{t('measure.hint')}</Text>
         ) : null}
 
         <SectionTitle>{t('measure.unit')}</SectionTitle>
         <Segmented value={unit} onChange={onUnitChange} options={UNITS} />
-
-        <View style={{ marginTop: 8 }}>
-          <SwitchRow label={t('measure.snap')} value={snap} onValueChange={onSnapChange} icon="magnet-outline" />
-        </View>
 
         <View style={styles.tools}>
           <ToolButton icon="arrow-undo-outline" label={t('measure.undo')} onPress={onUndo} disabled={!state?.canUndo} />
@@ -74,13 +76,13 @@ export default function MeasureSheet({
           renderItem={({ item }) => (
             <View style={[styles.row, { borderBottomColor: colors.border }]}>
               <Ionicons
-                name={item.kind === 'distance' ? 'resize-outline' : 'triangle-outline'}
+                name={ITEM_ICON[item.kind] || 'resize-outline'}
                 size={17}
-                color={item.kind === 'distance' ? colors.info : colors.warning}
+                color={item.kind === 'distance' ? colors.info : item.kind === 'laser' ? colors.danger : colors.warning}
               />
               <Text style={[styles.rowText, { color: colors.text }]}>{item.text}</Text>
               <Text style={[styles.rowMeta, { color: colors.textFaint }]}>
-                {item.kind === 'distance' ? t('measure.distance') : t('measure.angle')}
+                {item.kind === 'distance' ? t('measure.distance') : item.kind === 'laser' ? t('measure.laser') : t('measure.angle')}
               </Text>
             </View>
           )}

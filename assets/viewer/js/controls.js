@@ -10,9 +10,10 @@ window.SOS = window.SOS || {};
     this.target = new THREE.Vector3();
     this.spherical = new THREE.Spherical(10, Math.PI / 3, Math.PI / 4);
     this.minDistance = 0.05;
-    this.maxDistance = 1e6;
-    this.rotateSpeed = 0.005;
-    this.damping = 0.12;
+    this.maxDistance = 5000;
+    this.rotateSpeed = 0.004;
+    this.panSpeed = 0.6;
+    this.damping = 0.22;
     this.enabled = true;
     this.onTap = null;              // (x, y) -> void
     this.onChange = null;
@@ -80,7 +81,7 @@ window.SOS = window.SOS || {};
       var d = this._distance();
       if (this._startDist > 0) {
         var ratio = d / this._startDist;
-        this._scale /= Math.pow(ratio, 0.9);
+        this._scale /= Math.pow(ratio, 0.55);
         this._startDist = d;
       }
       var mid = this._midpoint();
@@ -92,6 +93,7 @@ window.SOS = window.SOS || {};
   TouchControls.prototype._up = function (e) {
     var i = this._idx(e.pointerId);
     if (i >= 0) this._pointers.splice(i, 1);
+    if (!this.enabled) return;
     if (this._pointers.length === 0) {
       var quick = Date.now() - this._downTime < 350;
       if (!this._suppressTap && quick && this._moved < 12 && this.onTap) {
@@ -118,8 +120,9 @@ window.SOS = window.SOS || {};
     if (cam.isPerspectiveCamera) {
       var offset = new THREE.Vector3().copy(cam.position).sub(this.target);
       targetDistance = offset.length() * Math.tan((cam.fov / 2) * Math.PI / 180);
-      var px = (2 * dx * targetDistance / el.clientHeight);
-      var py = (2 * dy * targetDistance / el.clientHeight);
+      targetDistance = Math.min(targetDistance, this.maxDistance * 0.05);
+      var px = (2 * dx * targetDistance / el.clientHeight) * this.panSpeed;
+      var py = (2 * dy * targetDistance / el.clientHeight) * this.panSpeed;
       v.setFromMatrixColumn(cam.matrix, 0).multiplyScalar(-px);
       this._panOffset.add(v);
       v.setFromMatrixColumn(cam.matrix, 1).multiplyScalar(py);
@@ -127,9 +130,9 @@ window.SOS = window.SOS || {};
     } else {
       var w = (cam.right - cam.left) / cam.zoom;
       var h = (cam.top - cam.bottom) / cam.zoom;
-      v.setFromMatrixColumn(cam.matrix, 0).multiplyScalar(-dx * w / el.clientWidth);
+      v.setFromMatrixColumn(cam.matrix, 0).multiplyScalar(-dx * w / el.clientWidth * this.panSpeed);
       this._panOffset.add(v);
-      v.setFromMatrixColumn(cam.matrix, 1).multiplyScalar(dy * h / el.clientHeight);
+      v.setFromMatrixColumn(cam.matrix, 1).multiplyScalar(dy * h / el.clientHeight * this.panSpeed);
       this._panOffset.add(v);
     }
   };

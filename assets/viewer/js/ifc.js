@@ -26,6 +26,9 @@ window.SOS = window.SOS || {};
     this.elementIndex = new Map();  // expressID -> [{g,i}]
     this.typeNames = {};
     this.typeOfElement = new Map();
+    this.elementStorey = new Map();  // expressID -> storey expressID
+    this.storeys = [];               // storey expressID'leri, yukseklige gore sirali
+    this.storeyOrder = new Map();    // storey expressID -> sira indeksi
     this.tree = null;
     this.stats = { elements: 0, triangles: 0, groups: 0, ms: 0 };
     this.bbox = new THREE.Box3();
@@ -282,12 +285,35 @@ window.SOS = window.SOS || {};
       var kids = rel.RelatedObjects || [];
       for (var i = 0; i < kids.length; i++) addChild(p, val(kids[i]));
     });
+    // Kat (storey) -> eleman iliskisi: hem agac hem de "katman katman ayirma"
+    // patlatma modu icin elementStorey haritasinda ayrica saklanir.
+    var elementStorey = new Map();
     idsOf(WebIFC.IFCRELCONTAINEDINSPATIALSTRUCTURE).forEach(function (rid) {
       var rel = api.GetLine(modelID, rid, false);
       var p = val(rel.RelatingStructure);
       var kids = rel.RelatedElements || [];
-      for (var i = 0; i < kids.length; i++) addChild(p, val(kids[i]));
+      for (var i = 0; i < kids.length; i++) {
+        var kid = val(kids[i]);
+        addChild(p, kid);
+        elementStorey.set(kid, p);
+      }
     });
+    this.elementStorey = elementStorey;
+
+    // Katlari yukseklige (Elevation) gore siralayip patlatma icin bir sira indeksi ata
+    var storeyIds = idsOf(WebIFC.IFCBUILDINGSTOREY);
+    var storeyElevation = storeyIds.map(function (sid) {
+      var elev = 0;
+      try {
+        var line = api.GetLine(modelID, sid, false);
+        var e = val(line.Elevation);
+        if (typeof e === 'number') elev = e;
+      } catch (e) {}
+      return { id: sid, elevation: elev };
+    }).sort(function (a, b) { return a.elevation - b.elevation; });
+    this.storeys = storeyElevation.map(function (s) { return s.id; });
+    this.storeyOrder = new Map();
+    storeyElevation.forEach(function (s, idx) { self.storeyOrder.set(s.id, idx); });
 
     var visited = new Set();
     var nodeCount = 0;
@@ -470,8 +496,10 @@ window.SOS = window.SOS || {};
     return out;
   };
 
-  /** Elemanin dunya sinir kutusu; boyutlar mm cinsinden. */
-  IFCModel.prototype.getDimensions = function (expressID) {
+  /** Elemanin dunya sinir kutusu (THREE.Box3, model birimlerinde - mm'ye
+   *  cevrilmez). Lazer olcum aracinin "en yakin kenara mesafe" hesabinda da
+   *  kullanilir (bkz. assets/viewer/js/tools.js MeasureTool). */
+  IFCModel.prototype.getElementBox = function (expressID) {
     var refs = this.elementIndex.get(expressID);
     if (!refs || !refs.length) return null;
     var box = new THREE.Box3();
@@ -484,7 +512,13 @@ window.SOS = window.SOS || {};
       tmp.copy(g.mesh.geometry.boundingBox).applyMatrix4(m).applyMatrix4(g.mesh.matrixWorld);
       box.union(tmp);
     }
-    if (box.isEmpty()) return null;
+    return box.isEmpty() ? null : box;
+  };
+
+  /** Elemanin dunya sinir kutusu; boyutlar mm cinsinden. */
+  IFCModel.prototype.getDimensions = function (expressID) {
+    var box = this.getElementBox(expressID);
+    if (!box) return null;
     var size = box.getSize(new THREE.Vector3());
     var s = this._lengthScaleToMm;
     return {
@@ -502,6 +536,9 @@ window.SOS = window.SOS || {};
     }
     this.groups = [];
     this.elementIndex.clear();
+    this.elementStorey.clear();
+    this.storeys = [];
+    this.storeyOrder.clear();
     this._propCache.clear();
     if (this.api && this.modelID >= 0) {
       try { this.api.CloseModel(this.modelID); } catch (e) {}

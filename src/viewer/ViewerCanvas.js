@@ -28,9 +28,10 @@ const ViewerCanvas = forwardRef(function ViewerCanvas(props, ref) {
     onSelection,
     onMeasurement,
     onMeasureState,
-    onCamera,
+    onWalkStarted,
     onFps,
     onError,
+    onThumbnail,
   } = props;
 
   const webRef = useRef(null);
@@ -133,14 +134,16 @@ const ViewerCanvas = forwardRef(function ViewerCanvas(props, ref) {
       case 'selection': onSelection?.(payload); break;
       case 'measurement': onMeasurement?.(payload); break;
       case 'measureState': onMeasureState?.(payload); break;
-      case 'camera': onCamera?.(payload); break;
+      case 'walkStarted': onWalkStarted?.(payload); break;
       case 'fps': onFps?.(payload); break;
       case 'error': onError?.(payload); break;
+      case 'thumbnail': onThumbnail?.(payload); break;
       case 'log': if (__DEV__) console.log('[viewer]', payload?.message); break;
       default: break;
     }
   }, [backgroundColor, dark, cubeLabels, showFps, modelUri, send, bootViewer, loadModel,
-      onReady, onProgress, onLoaded, onSelection, onMeasurement, onMeasureState, onCamera, onFps, onError]);
+      onReady, onProgress, onLoaded, onSelection, onMeasurement, onMeasureState, onWalkStarted, onFps, onError,
+      onThumbnail]);
 
   useEffect(() => {
     if (booted.current && modelUri && !transferStarted.current) loadModel(modelUri);
@@ -148,7 +151,7 @@ const ViewerCanvas = forwardRef(function ViewerCanvas(props, ref) {
 
   useImperativeHandle(ref, () => ({
     fit: () => send('fit', {}),
-    setProjection: (mode) => send('projection', { mode }),
+    resetView: () => send('resetView', {}),
     setViewDirection: (x, y, z, orthographic = true) => send('viewDirection', { x, y, z, orthographic }),
     setTheme: (background, isDark, labels) => send('setTheme', { background, dark: isDark, cubeLabels: labels }),
     showHud: (visible) => send('showHud', { visible }),
@@ -161,27 +164,30 @@ const ViewerCanvas = forwardRef(function ViewerCanvas(props, ref) {
     isolate: (ids) => send('isolate', { ids }),
     showAll: () => send('showAll', {}),
     setWireframe: (enabled) => send('wireframe', { enabled }),
-    setColorByType: (enabled) => send('colorByType', { enabled }),
     setExplode: (factor) => send('explode', { factor }),
+    setLayerSeparate: (axis, factor) => send('layerSeparate', { axis, factor }),
 
     select: (id, focus = false) => send('select', { id, focus }),
     clearSelection: () => send('select', { id: null }),
 
     setMeasureMode: (mode) => send('measureMode', { mode }),
-    setMeasureSnap: (enabled) => send('measureSnap', { enabled }),
     setMeasureUnit: (unit) => send('measureUnit', { unit }),
     measureUndo: () => send('measureUndo', {}),
     measureRedo: () => send('measureRedo', {}),
     measureClear: () => send('measureClear', {}),
 
-    requestCamera: () => send('getCamera', {}),
-    setCamera: (state) => send('setCamera', state),
+    armWalkPick: () => send('walkArmPick', {}),
+    cancelWalkPick: () => send('walkCancelPick', {}),
+    exitWalkthrough: () => send('walkExit', {}),
+    walkMove: (x, y) => send('walkMove', { x, y }),
+    walkLook: (x, y) => send('walkLook', { x, y }),
+    setWalkSpeed: (speed) => send('walkSpeed', { speed }),
   }), [send]);
 
   if (!htmlUri) {
     return (
       <View style={[styles.center, { backgroundColor }]}>
-        <ActivityIndicator color="#E8541F" />
+        <ActivityIndicator color="#4C6FE0" />
       </View>
     );
   }
@@ -211,7 +217,7 @@ const ViewerCanvas = forwardRef(function ViewerCanvas(props, ref) {
       onError={(e) => onError?.({ code: 'WEBVIEW_ERROR', message: String(e?.nativeEvent?.description || '') })}
       renderLoading={() => (
         <View style={[styles.center, { backgroundColor }]}>
-          <ActivityIndicator color="#E8541F" />
+          <ActivityIndicator color="#4C6FE0" />
         </View>
       )}
     />

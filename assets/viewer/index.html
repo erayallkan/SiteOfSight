@@ -15,15 +15,24 @@
            border:1px solid rgba(255,255,255,.14); white-space:nowrap; }
   .label.dist { background:rgba(37,99,235,.92); }
   .label.angle{ background:rgba(217,119,6,.92); }
+  .label.laser{ background:rgba(239,68,68,.92); }
   #snap { position:absolute; width:18px; height:18px; margin:-9px 0 0 -9px; border-radius:50%;
           border:2px solid #fff; box-shadow:0 0 0 2px rgba(37,99,235,.9); display:none; }
   #hud { position:absolute; left:10px; top:10px; font-size:11px; color:rgba(255,255,255,.55);
          font-variant-numeric:tabular-nums; display:none; }
+  #crosshair { position:absolute; width:56px; height:56px; margin:-28px 0 0 -28px; display:none;
+               border-radius:50%; border:2px solid rgba(255,255,255,.85);
+               background:rgba(20,22,28,.18); box-shadow:0 0 0 1px rgba(0,0,0,.25); }
+  #crosshair::before, #crosshair::after { content:''; position:absolute; background:rgba(255,255,255,.9); }
+  #crosshair::before { left:50%; top:8px; bottom:8px; width:2px; margin-left:-1px; }
+  #crosshair::after { top:50%; left:8px; right:8px; height:2px; margin-top:-1px; }
+  #crosshair.snapped { border-color:#2563EB; background:rgba(37,99,235,.22); }
+  #crosshair.snapped::before, #crosshair.snapped::after { background:#2563EB; }
 </style>
 </head>
 <body>
   <canvas id="gl"></canvas>
-  <div id="overlay"><div id="snap"></div><div id="hud"></div></div>
+  <div id="overlay"><div id="snap"></div><div id="crosshair"></div><div id="hud"></div></div>
 
   <!-- Vendor: klasik script (ESM DEĞİL) -> file:// altında CORS sorunu yaşanmaz -->
   <script src="./vendor/three.min.js"></script>

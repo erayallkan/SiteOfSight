@@ -97,7 +97,7 @@ src/
   viewer/ViewerCanvas.js   WebView sarmalayici + parcali dosya aktarimi + imperative API
   screens/                 Onboarding, Home (gecmis), Viewer, Settings
   components/              BottomSheet/Slider/Segmented, ModelTree, Properties, Measure, Display
-  db/database.js           SQLite: models, measurements, bookmarks
+  db/database.js           SQLite: models, measurements
   services/                assets (paketli dosyalar), modelFiles (secme/dogrulama/kopyalama)
   store/AppContext.js      Tema + dil + birim + onboarding (AsyncStorage)
   i18n/                    Turkce (varsayilan) / Ingilizce
@@ -107,15 +107,15 @@ src/
 ### Kopru protokolu
 
 RN -> WebView (`injectJavaScript` ile `SOS.bridge.cmd(json)`):
-`wasmChunk`, `wasmEnd`, `ifcBegin`, `ifcChunk`, `ifcEnd`, `fit`, `projection`,
+`wasmChunk`, `wasmEnd`, `ifcBegin`, `ifcChunk`, `ifcEnd`, `fit`, `resetView`,
 `viewDirection`, `setTheme`, `section`, `clearSection`, `hide`, `show`, `isolate`,
-`showAll`, `wireframe`, `colorByType`, `explode`, `select`, `measureMode`,
-`measureSnap`, `measureUnit`, `measureUndo`, `measureRedo`, `measureClear`,
-`getCamera`, `setCamera`, `showHud`
+`showAll`, `wireframe`, `explode`, `layerSeparate`, `select`, `measureMode`,
+`measureUnit`, `measureUndo`, `measureRedo`, `measureClear`, `showHud`,
+`walkEnter`, `walkExit`, `walkMove`, `walkLook`
 
 WebView -> RN (`postMessage`):
 `ready`, `ack`, `booted`, `progress`, `loaded`, `selection`, `measurement`,
-`measureState`, `camera`, `viewCube`, `fps`, `log`, `error`
+`measureState`, `viewCube`, `fps`, `log`, `error`
 
 ---
 
@@ -128,9 +128,9 @@ WebView -> RN (`postMessage`):
 - **Kesit** — X/Y/Z duzlemi, kaydirici ile konum, yon cevirme.
 - **ViewCube** — sol altta; bir yuze dokununca kamera o yone **ortografik** gecer,
   serbest gezinmede perspektif kamera kullanilir.
-- **Olcum** — kose / kenar orta noktasi / yuzey merkezi yakalama, mesafe ve aci,
-  undo/redo, gecmis SQLite'a yazilir.
-- **Kayitli gorunumler** — kamera durumu isimle saklanir, tek dokunusla geri yuklenir.
+- **Olcum** — kose / kenar orta noktasi / yuzey merkezi yakalama (her zaman acik),
+  mesafe ve aci, undo/redo, gecmis SQLite'a yazilir.
+- **Patlatma** — radyal (merkezden disari) veya katman katman (kat bazinda) ayirma.
 - **Tema ve dil** — koyu/acik/sistem, Turkce/Ingilizce, ayarlardan degistirilir.
 - **Gecmis** — son acilan modeller yerel veritabanindan listelenir (uzun basip sil).
 

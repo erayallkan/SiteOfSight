@@ -8,6 +8,7 @@
   var canvas = document.getElementById('gl');
   var overlay = document.getElementById('overlay');
   var hud = document.getElementById('hud');
+  var crosshairEl = document.getElementById('crosshair');
 
   var renderer, scene, perspCamera, orthoCamera, camera, controls, cube;
   var model = null;
@@ -15,6 +16,28 @@
   var selectionMesh = null;
   var selectedId = null;
   var needsRender = true;
+
+  /* Yurume (walkthrough) modu: 2 sanal joystick ile ilk sahis gezinme. */
+  var walk = {
+    active: false,
+    position: new THREE.Vector3(),
+    lookTarget: new THREE.Vector3(),
+    yaw: 0, pitch: 0,
+    moveX: 0, moveY: 0, lookX: 0, lookY: 0,
+    speed: 1                 // hiz carpani (walkSpeed komutuyla degisir)
+  };
+  var WALK_MOVE_MPS = 1.4;   // insan yuruyus hizi (m/s)
+  var WALK_LOOK_RATE = 2.2;  // tam kuvvette radyan/s
+  var walkPicking = false;   // true iken bir sonraki dokunma yurume baslangic noktasidir
+
+  /* Olcumde hassas capraz-imlec (crosshair) modu: parmagi surukleme ANINDA
+   *  (bekleme suresi olmadan) acilir, boylece basit bir dokunus hala aninda
+   *  nokta koyar, ama surukleyerek getirilen dokunuslar dogrudan koseye/
+   *  kenara hassas hizalanabilir. */
+  var CROSSHAIR_DRAG_PX = 10; // bu kadar hareket = surukleme (tap degil)
+  var CROSSHAIR_LIFT = 90;    // px, parmagin ustunde gorunsun diye
+  var chPress = null;         // { x, y, id }
+  var chActive = false;
   // Mobil GPU'larda ilk cizim, shader derlemesi arka planda oldugu icin sessizce
   // "bos kare" verebilir (WebGL programlari lazy/async compile edilir - suresi
   // cihaza gore degisir, sabit kare sayisi yetersiz kalabilir). Model her
@@ -23,6 +46,53 @@
   // arda zorla render edilir; boylece kullanici dokunmadan da model gorunur olur.
   var warmupUntil = 0;
   function warmup(ms) { warmupUntil = Math.max(warmupUntil, performance.now() + (ms || 1200)); needsRender = true; }
+
+  /** Model listesinde gosterilecek kucuk onizleme goruntusu; RN tarafi bunu
+   *  base64 olarak dogrudan modelin thumbnail_data sutununa kaydeder (dosya
+   *  YOK - bkz. src/screens/ViewerScreen.js handleThumbnail).
+   *  NOT: ilk surum, tam ekran boyutundaki ana canvas'i AYRI bir offscreen 2D
+   *  canvas'a drawImage ile kopyalayip oradan okuyordu - hata vermeden
+   *  calisiyordu ama sonuc bos/arka plan rengi gibi gorunuyordu (muhtemelen
+   *  WebGL tamponunun drawImage anindaki dolayli okumasi guvenilir degildi).
+   *  Simdi renderer GECICI olarak kucuk hedef boyuta alinip DOGRUDAN o anda
+   *  tek bir kare ciziliyor ve AYNI (ana) canvas'tan okunuyor - araya baska
+   *  bir canvas girmiyor. Bu birkac kare surer; RN tarafinin yukleme katmani
+   *  bu sirada hala ekranda oldugu icin (bkz. ViewerScreen 1600ms gecikmesi)
+   *  gorsel bir titreme yasanmaz. */
+  function captureThumbnail() {
+    var prevW = window.innerWidth, prevH = window.innerHeight;
+    var prevRatio = renderer.getPixelRatio();
+    var prevAspect = camera.isPerspectiveCamera ? camera.aspect : null;
+    try {
+      var THUMB_W = 320;
+      var THUMB_H = Math.max(1, Math.round(THUMB_W * (prevH / prevW)));
+
+      renderer.setPixelRatio(1);
+      renderer.setSize(THUMB_W, THUMB_H, false); // false: canvas'in CSS boyutu degismez, sadece cizim tamponu
+      renderer.setViewport(0, 0, THUMB_W, THUMB_H);
+      if (camera.isPerspectiveCamera) {
+        camera.aspect = THUMB_W / THUMB_H;
+        camera.updateProjectionMatrix();
+      }
+      renderer.render(scene, camera); // ViewCube/HUD YOK - sadece 3B sahne
+
+      var dataUrl = canvas.toDataURL('image/jpeg', 0.75);
+      post('thumbnail', { dataUrl: dataUrl });
+    } catch (e) {
+      post('log', { message: 'thumbnail yakalama basarisiz: ' + (e && e.message ? e.message : e) });
+    } finally {
+      // Eski boyuta/kamera oranina geri don - bir sonraki normal kare
+      // dogru gorunsun diye.
+      renderer.setPixelRatio(prevRatio);
+      renderer.setSize(prevW, prevH, false);
+      renderer.setViewport(0, 0, prevW, prevH);
+      if (prevAspect !== null) {
+        camera.aspect = prevAspect;
+        camera.updateProjectionMatrix();
+      }
+      needsRender = true;
+    }
+  }
   var lodTimer = 0;
   var quality = { pixelRatio: 1, target: 1, frames: 0, acc: 0, fps: 0 };
   var bg = 0x20232A;
@@ -35,7 +105,10 @@
       antialias: false,
       alpha: false,
       powerPreference: 'high-performance',
-      stencil: false
+      stencil: false,
+      // Model onizleme gorseli (thumbnail) icin canvas.toDataURL cizim
+      // tamamlandiktan hemen sonra okunabilsin diye framebuffer korunur.
+      preserveDrawingBuffer: true
     });
     quality.target = Math.min(window.devicePixelRatio || 1, 2);
     quality.pixelRatio = quality.target;
@@ -73,8 +146,30 @@
 
     window.addEventListener('resize', resize);
     canvas.addEventListener('pointermove', function (e) {
-      if (measure.mode !== 'none') measure.hover(e.clientX, e.clientY);
+      if (measure.mode !== 'none' && !chActive) measure.hover(e.clientX, e.clientY);
     });
+    canvas.addEventListener('pointerdown', function (e) {
+      if (measure.mode === 'none') return;
+      if (chPress) {
+        // ikinci parmak indi (olasi pinch): bekleyen surukleme adayini iptal et
+        chPress = null;
+        return;
+      }
+      chPress = { x: e.clientX, y: e.clientY, id: e.pointerId };
+    }, { passive: true });
+    canvas.addEventListener('pointermove', function (e) {
+      if (!chPress || chPress.id !== e.pointerId) return;
+      if (!chActive) {
+        var dx = e.clientX - chPress.x, dy = e.clientY - chPress.y;
+        if (Math.hypot(dx, dy) < CROSSHAIR_DRAG_PX) return; // henuz surukleme sayilmiyor
+        chActive = true;
+        controls.enabled = false;
+        if (measure.snapDot) measure.snapDot.style.display = 'none';
+      }
+      crosshairShow(e.clientX, e.clientY);
+    });
+    canvas.addEventListener('pointerup', function (e) { crosshairEnd(e); });
+    canvas.addEventListener('pointercancel', function (e) { crosshairEnd(e, true); });
     canvas.addEventListener('webglcontextlost', function (e) {
       e.preventDefault();
       post('error', { code: 'GL_CONTEXT_LOST', message: 'WebGL context kayboldu' });
@@ -99,6 +194,7 @@
       requestRender: function () { needsRender = true; },
       forEachMaterial: forEachMaterial,
       pick: pick,
+      pickAlongRay: pickAlongRay,
       toScreen: toScreen,
       pixelWorldScale: pixelWorldScale
     };
@@ -173,6 +269,41 @@
   }
 
   var raycaster = new THREE.Raycaster();
+  var rayFromPoint = new THREE.Raycaster();
+
+  function visibleMeshes() {
+    var meshes = [];
+    for (var i = 0; i < model.groups.length; i++) {
+      if (model.groups[i].mesh.visible) meshes.push(model.groups[i].mesh);
+    }
+    return meshes;
+  }
+
+  /** hits (raycaster ciktisi) icinden kesit duzlemleriyle kirpilmamis ve
+   *  gorunur (isolate/hide sonrasi da) ilk gecerli vurusu secer, expressID'yi
+   *  ekler. excludeObject/excludeInstanceId verilirse o instance atlanir
+   *  (ör. lazer'in normal yonundeki isini, dokundugu elemanin kendi diger
+   *  yuzune hemen carpmasin diye). */
+  function resolveHit(hits, excludeObject, excludeInstanceId) {
+    if (!hits.length) return null;
+    var planes = activeClipPlanes();
+    for (var h = 0; h < hits.length; h++) {
+      var hit = hits[h];
+      var idx = hit.instanceId === undefined ? 0 : hit.instanceId;
+      if (excludeObject && hit.object === excludeObject && idx === excludeInstanceId) continue;
+      var clipped = false;
+      for (var p = 0; p < planes.length; p++) {
+        if (planes[p].distanceToPoint(hit.point) < 0) { clipped = true; break; }
+      }
+      if (clipped) continue;
+      var g = model.groups[hit.object.userData.groupIndex];
+      if (!g) continue;
+      if (!g.visibleFlags[idx]) continue;
+      hit.expressID = g.expressIDs[idx];
+      return hit;
+    }
+    return null;
+  }
 
   function pick(x, y) {
     if (!model) return null;
@@ -181,29 +312,18 @@
       -(y / window.innerHeight) * 2 + 1
     );
     raycaster.setFromCamera(ndc, camera);
-    var meshes = [];
-    for (var i = 0; i < model.groups.length; i++) {
-      if (model.groups[i].mesh.visible) meshes.push(model.groups[i].mesh);
-    }
-    var hits = raycaster.intersectObjects(meshes, false);
-    if (!hits.length) return null;
+    return resolveHit(raycaster.intersectObjects(visibleMeshes(), false));
+  }
 
-    var planes = activeClipPlanes();
-    for (var h = 0; h < hits.length; h++) {
-      var hit = hits[h];
-      var clipped = false;
-      for (var p = 0; p < planes.length; p++) {
-        if (planes[p].distanceToPoint(hit.point) < 0) { clipped = true; break; }
-      }
-      if (clipped) continue;
-      var g = model.groups[hit.object.userData.groupIndex];
-      if (!g) continue;
-      var idx = hit.instanceId === undefined ? 0 : hit.instanceId;
-      if (!g.visibleFlags[idx]) continue;
-      hit.expressID = g.expressIDs[idx];
-      return hit;
-    }
-    return null;
+  /** Dunya uzayinda bir noktadan bir yon boyunca isin ("lazer") atar; ör.
+   *  bir dosemenin ust yuzeyinden normal yonunde (yukari) atilan isin bir
+   *  sonraki yuzeye (tavan) kadar olan mesafeyi bulmak icin - bkz.
+   *  assets/viewer/js/tools.js MeasureTool._commitLaser. */
+  function pickAlongRay(origin, direction, excludeObject, excludeInstanceId) {
+    if (!model) return null;
+    rayFromPoint.set(origin, direction.clone().normalize());
+    rayFromPoint.near = 1e-4;
+    return resolveHit(rayFromPoint.intersectObjects(visibleMeshes(), false), excludeObject, excludeInstanceId);
   }
 
   function handleTap(x, y) {
@@ -214,13 +334,71 @@
       post('viewCube', { face: faceHit.key });
       return;
     }
+    if (walkPicking) {
+      var walkHit = pick(x, y);
+      if (walkHit) {
+        walkPicking = false;
+        enterWalkthroughAtPoint(walkHit.point);
+        post('walkStarted', {});
+      }
+      return;
+    }
     if (measure.mode !== 'none') {
       measure.tap(x, y);
       return;
     }
     var hit = pick(x, y);
     if (!hit) { clearSelection(); post('selection', null); return; }
-    selectElement(hit.expressID, false);
+    selectElement(hit.expressID, false, x, y);
+  }
+
+  /* ---------------- Olcumde surukleme ile capraz-imlec ---------------- */
+
+  /** Capraz-imleci parmagin bir miktar ustunde konumlandirir ve o noktadaki
+   *  kose/kenar yakalama adayini onizler (yakalanmissa vurgulu gosterilir). */
+  function crosshairShow(x, y) {
+    var cy = y - CROSSHAIR_LIFT;
+    var hit = pick(x, cy);
+    var snapped = false;
+
+    // Lazer disindaki modlarda (distance/angle) en yakin kose/kenar-orta
+    // adayi surukleme SIRASINDA da onizlenir (mavi nokta) - onceden bu sadece
+    // parmak kaldirildiginda SESSIZCE uygulaniyordu, kullanici nereye
+    // "kilitleneceğini" goremiyordu.
+    if (hit && measure.mode !== 'laser') {
+      var cand = measure._snapCandidate(hit);
+      snapped = cand.snapped;
+      if (cand.point && measure.snapDot) {
+        var s = toScreen(cand.point);
+        measure.snapDot.style.display = 'block';
+        measure.snapDot.style.left = s.x + 'px';
+        measure.snapDot.style.top = s.y + 'px';
+      }
+    } else if (measure.snapDot) {
+      measure.snapDot.style.display = 'none';
+    }
+
+    crosshairEl.style.left = x + 'px';
+    crosshairEl.style.top = cy + 'px';
+    crosshairEl.style.display = 'block';
+    crosshairEl.classList.toggle('snapped', snapped);
+    crosshairEl.dataset.x = x;
+    crosshairEl.dataset.y = cy;
+    needsRender = true;
+  }
+
+  function crosshairEnd(e, cancelled) {
+    if (!chPress || chPress.id !== e.pointerId) return;
+    if (chActive && !cancelled) {
+      measure.tap(parseFloat(crosshairEl.dataset.x), parseFloat(crosshairEl.dataset.y));
+    }
+    if (chActive) {
+      crosshairEl.style.display = 'none';
+      if (measure.snapDot) measure.snapDot.style.display = 'none';
+      controls.enabled = true;
+      chActive = false;
+    }
+    chPress = null;
   }
 
   /* ---------------- Secim ---------------- */
@@ -245,7 +423,7 @@
     var group = new THREE.Group();
     var planes = activeClipPlanes();
     var mat = new THREE.MeshBasicMaterial({
-      color: 0xE8541F, transparent: true, opacity: 0.55,
+      color: 0x4C6FE0, transparent: true, opacity: 0.55,
       depthTest: false, side: THREE.DoubleSide,
       clippingPlanes: planes.length ? planes : null
     });
@@ -268,12 +446,13 @@
     needsRender = true;
   }
 
-  function selectElement(expressID, focus) {
+  function selectElement(expressID, focus, tapX, tapY) {
     highlight(expressID);
     var props = null;
     try { props = model.getProperties(expressID); }
     catch (e) { post('error', { code: 'PROPS_FAILED', message: String(e && e.message || e) }); }
     if (focus) focusOn(expressID);
+    if (props && tapX !== undefined) { props.tapX = tapX; props.tapY = tapY; }
     post('selection', props);
   }
 
@@ -359,6 +538,70 @@
     needsRender = true;
   }
 
+  /* ---------------- Yurume (walkthrough) modu ---------------- */
+
+  function walkEyeHeightWorld() {
+    var mmPerUnit = (model && model._lengthScaleToMm) || 1000;
+    return 1650 / mmPerUnit; // ~1.65m insan goz yuksekligi, dunya birimine cevrilir
+  }
+
+  /** Tiklanan noktada (herhangi bir yuzeyde) yurumeye baslar - mahal/IFCSPACE
+   *  verisine bagimli degildir, boylece bu veriyi icermeyen IFC dosyalarinda
+   *  da calisir. */
+  function enterWalkthroughAtPoint(point) {
+    if (!model) return;
+    walk.position.set(point.x, point.y + walkEyeHeightWorld(), point.z);
+    walk.yaw = controls.spherical.theta;
+    walk.pitch = 0;
+    walk.moveX = 0; walk.moveY = 0; walk.lookX = 0; walk.lookY = 0;
+    clearSelection();
+    post('selection', null);
+    setProjection('perspective');
+    camera = perspCamera;
+    controls.camera = camera;
+    controls.enabled = false;
+    walk.active = true;
+    needsRender = true;
+  }
+
+  function exitWalkthrough() {
+    if (!walk.active) return;
+    walk.active = false;
+    controls.enabled = true;
+    fit(1.12);
+  }
+
+  function updateWalk(dtMs) {
+    var dt = Math.min(dtMs, 100) / 1000;
+    var moved = Math.abs(walk.moveX) > 0.02 || Math.abs(walk.moveY) > 0.02;
+    var looked = Math.abs(walk.lookX) > 0.02 || Math.abs(walk.lookY) > 0.02;
+
+    if (looked) {
+      walk.yaw -= walk.lookX * WALK_LOOK_RATE * dt;
+      walk.pitch = SOS.util.clamp(walk.pitch - walk.lookY * WALK_LOOK_RATE * dt, -1.4, 1.4);
+    }
+    if (moved) {
+      var mps = WALK_MOVE_MPS * walk.speed * (1000 / ((model && model._lengthScaleToMm) || 1000));
+      var forward = new THREE.Vector3(Math.sin(walk.yaw), 0, Math.cos(walk.yaw));
+      // NOT: kamera-sagi = forward x up (Y-up, sag-elli sistem). Onceki
+      // (forward.z, 0, -forward.x) bunun TERSIYDI (aslinda sol yon) - bu yuzden
+      // hareket joystick'ini saga cekmek karakteri sola kaydiriyordu.
+      var right = new THREE.Vector3(-forward.z, 0, forward.x);
+      walk.position.addScaledVector(forward, -walk.moveY * mps * dt);
+      walk.position.addScaledVector(right, walk.moveX * mps * dt);
+    }
+
+    camera.position.copy(walk.position);
+    var lookDir = new THREE.Vector3(
+      Math.sin(walk.yaw) * Math.cos(walk.pitch),
+      Math.sin(walk.pitch),
+      Math.cos(walk.yaw) * Math.cos(walk.pitch)
+    );
+    walk.lookTarget.copy(walk.position).add(lookDir);
+    camera.lookAt(walk.lookTarget);
+    return moved || looked;
+  }
+
   /* ---------------- Render dongusu ---------------- */
 
   function updateLod() {
@@ -407,8 +650,8 @@
     var dt = now - lastTime;
     lastTime = now;
 
-    var moving = controls.update();
-    if (camera.isOrthographicCamera && moving) updateOrthoFrustum();
+    var moving = walk.active ? updateWalk(dt) : controls.update();
+    if (!walk.active && camera.isOrthographicCamera && moving) updateOrthoFrustum();
 
     var warmingUp = now < warmupUntil;
     if (moving) needsRender = true;
@@ -419,7 +662,7 @@
     if (lodTimer > 250) { lodTimer = 0; updateLod(); }
 
     measure.update();
-    cube.sync(camera, controls.target);
+    cube.sync(camera, walk.active ? walk.lookTarget : controls.target);
 
     try {
       renderer.setViewport(0, 0, window.innerWidth, window.innerHeight);
@@ -500,7 +743,11 @@
       model.root.updateMatrixWorld(true);
       model.bbox.setFromObject(model.root);
 
+      walk.active = false;
+      walkPicking = false;
+      controls.enabled = true;
       visibility.showAll();
+      explode.reset();
       setProjection('perspective');
       // Once bakis yonu, sonra o yone gore sikica cerceveleme
       goToDirection(new THREE.Vector3(1, 0.75, 1).normalize(), false);
@@ -517,15 +764,34 @@
         unitScaleToMm: model._lengthScaleToMm,
         bbox: { min: model.bbox.min.toArray(), max: model.bbox.max.toArray() }
       });
+      // Onizleme gorseli: warmup penceresi ac.ken (frame'ler zorla cizildigi
+      // icin framebuffer taze) ama ilk kompozisyon (fit + isik) yerlesmis
+      // olsun diye kisa bir gecikmeyle yakalanir.
+      setTimeout(captureThumbnail, 1400);
     } catch (e) {
       post('error', { code: 'IFC_LOAD_FAILED', message: String(e && e.message || e) });
     }
   });
 
   on('fit', function () { fit(1.12); });
-  on('projection', function (p) { setProjection(p.mode); });
   on('viewDirection', function (p) {
     goToDirection(new THREE.Vector3(p.x, p.y, p.z), p.orthographic !== false);
+  });
+  on('resetView', function () {
+    walk.active = false;
+    walkPicking = false;
+    controls.enabled = true;
+    visibility.showAll();
+    clearSelection();
+    post('selection', null);
+    section.clear();
+    explode.reset();
+    measure.clear();
+    visibility.setWireframe(false);
+    setProjection('perspective');
+    goToDirection(new THREE.Vector3(1, 0.75, 1).normalize(), false);
+    fit(1.12);
+    warmup(800);
   });
 
   on('setTheme', function (p) {
@@ -545,8 +811,8 @@
   on('isolate', function (p) { visibility.isolate(p.ids); });
   on('showAll', function () { visibility.showAll(); clearSelection(); });
   on('wireframe', function (p) { visibility.setWireframe(p.enabled); });
-  on('colorByType', function (p) { visibility.setColorByType(p.enabled); });
-  on('explode', function (p) { explode.set(p.factor || 0); });
+  on('explode', function (p) { explode.setRadial(p.factor || 0); });
+  on('layerSeparate', function (p) { explode.setLayer(p.axis, p.factor || 0); });
 
   on('select', function (p) {
     if (p.id === null || p.id === undefined) { clearSelection(); return; }
@@ -554,29 +820,24 @@
   });
 
   on('measureMode', function (p) { measure.setMode(p.mode); });
-  on('measureSnap', function (p) { measure.setSnap(p.enabled); });
   on('measureUnit', function (p) { measure.setUnit(p.unit); });
   on('measureUndo', function () { measure.undo(); });
   on('measureRedo', function () { measure.redo(); });
   on('measureClear', function () { measure.clear(); });
 
-  on('getCamera', function () {
-    post('camera', {
-      target: controls.target.toArray(),
-      radius: controls.spherical.radius,
-      phi: controls.spherical.phi,
-      theta: controls.spherical.theta,
-      projection: camera.isOrthographicCamera ? 'orthographic' : 'perspective',
-      zoom: orthoCamera.zoom
-    });
+  on('walkArmPick', function () { walkPicking = true; needsRender = true; });
+  on('walkCancelPick', function () { walkPicking = false; });
+  on('walkExit', function () { walkPicking = false; exitWalkthrough(); });
+  on('walkMove', function (p) {
+    walk.moveX = SOS.util.clamp((p && p.x) || 0, -1, 1);
+    walk.moveY = SOS.util.clamp((p && p.y) || 0, -1, 1);
   });
-
-  on('setCamera', function (p) {
-    controls.target.fromArray(p.target || [0, 0, 0]);
-    controls.spherical.set(p.radius || 10, p.phi || 1, p.theta || 0);
-    setProjection(p.projection || 'perspective');
-    if (p.zoom) { orthoCamera.zoom = p.zoom; orthoCamera.updateProjectionMatrix(); }
-    needsRender = true;
+  on('walkLook', function (p) {
+    walk.lookX = SOS.util.clamp((p && p.x) || 0, -1, 1);
+    walk.lookY = SOS.util.clamp((p && p.y) || 0, -1, 1);
+  });
+  on('walkSpeed', function (p) {
+    walk.speed = SOS.util.clamp((p && p.speed) || 1, 0.25, 4);
   });
 
   // Otomatik testler ve hata ayiklama icin ic duruma okuma erisimi

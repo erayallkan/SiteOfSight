@@ -4,17 +4,18 @@ import {
   ActivityIndicator, Pressable, StyleSheet, Text, View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 
 import { useApp } from '../store/AppContext';
 import ViewerCanvas from '../viewer/ViewerCanvas';
 import ModelTreeSheet from '../components/ModelTreeSheet';
 import PropertiesSheet from '../components/PropertiesSheet';
 import MeasureSheet from '../components/MeasureSheet';
+import SectionSheet from '../components/SectionSheet';
 import DisplaySheet from '../components/DisplaySheet';
-import {
-  addBookmark, addMeasurement, deleteBookmark, listBookmarks, setModelStats, touchModel,
-} from '../db/database';
+import SelectionPopup from '../components/SelectionPopup';
+import WalkthroughOverlay from '../components/WalkthroughOverlay';
+import { addMeasurement, setModelStats, setModelThumbnail, touchModel } from '../db/database';
 
 const ERROR_MESSAGES = {
   IFC_LOAD_FAILED: 'errors.parseFailed',
@@ -38,28 +39,26 @@ export default function ViewerScreen({ route, navigation }) {
   const [stats, setStats] = useState(null);
   const [fps, setFps] = useState(0);
 
-  const [sheet, setSheet] = useState(null);          // tree | props | measure | display
+  const [sheet, setSheet] = useState(null);          // tree | props | measure | section | display | walk
   const [selected, setSelected] = useState(null);
   const [hiddenIds, setHiddenIds] = useState(() => new Set());
 
   const [measureMode, setMeasureMode] = useState('none');
-  const [measureSnap, setMeasureSnap] = useState(true);
   const [measureState, setMeasureState] = useState({ canUndo: false, canRedo: false, items: [] });
 
   const [section, setSection] = useState(null);      // { axis, t, flipped }
   const [wireframe, setWireframe] = useState(false);
-  const [colorByType, setColorByType] = useState(false);
   const [explode, setExplode] = useState(0);
-  const [projection, setProjection] = useState('perspective');
-  const [bookmarks, setBookmarks] = useState([]);
-  const pendingBookmarkName = useRef(null);
+  const [layerFactors, setLayerFactors] = useState({ x: 0, y: 0, z: 0 });
+
+  const [walkPicking, setWalkPicking] = useState(false);
+  const [walking, setWalking] = useState(false);
 
   useEffect(() => { touchModel(model.id).catch(() => {}); }, [model.id]);
-  useEffect(() => { listBookmarks(model.id).then(setBookmarks).catch(() => {}); }, [model.id]);
 
   const cubeLabels = useMemo(() => (settings.language === 'en'
     ? { right: 'RIGHT', left: 'LEFT', top: 'TOP', bottom: 'BOTTOM', front: 'FRONT', back: 'BACK' }
-    : { right: 'SAG', left: 'SOL', top: 'UST', bottom: 'ALT', front: 'ON', back: 'ARKA' }
+    : { right: 'SAĞ', left: 'SOL', top: 'ÜST', bottom: 'ALT', front: 'ÖN', back: 'ARKA' }
   ), [settings.language]);
 
   /* ---------------- Viewer olaylari ---------------- */
@@ -77,26 +76,42 @@ export default function ViewerScreen({ route, navigation }) {
     setTimeout(() => setLoaded(true), 1600);
   }, [model.id]);
 
+  /** Secim, hizli-eylem penceresini acar (bkz. SelectionPopup); tam ozellik
+   *  paneli sadece "Ozellikleri Goster" ile aciliyor. */
   const handleSelection = useCallback((element) => {
     setSelected(element);
-    if (element) setSheet('props');
   }, []);
 
   const handleMeasurement = useCallback((m) => {
     addMeasurement(model.id, m).catch(() => {});
   }, [model.id]);
 
-  const handleCamera = useCallback((camera) => {
-    const name = pendingBookmarkName.current;
-    if (!name) return;
-    pendingBookmarkName.current = null;
-    addBookmark(model.id, name, camera)
-      .then(() => listBookmarks(model.id))
-      .then(setBookmarks)
-      .catch(() => {});
+  const handleWalkStarted = useCallback(() => {
+    setWalkPicking(false);
+    setWalking(true);
+  }, []);
+
+  /** Viewer, RN'e data URL (data:image/jpeg;base64,...) olarak gonderir.
+   *  ONCEDEN bunu bir dosyaya yazip file:// URI'sini Image'e veriyorduk, ama
+   *  Expo Go'nun deneyim klasoru adi cift-kodlanmis ozel karakterler icerdigi
+   *  icin (ör. %2540, %252F) o URI, RN Image tarafindan hatasiz ama SESSIZCE
+   *  bombos gosteriliyordu. Simdi ham base64 dogrudan DB'ye yaziliyor ve
+   *  Ana Ekran'da yine bir data: URI olarak okunuyor - dosya/URI hic devreye
+   *  girmiyor. */
+  const handleThumbnail = useCallback((payload) => {
+    const base64 = String(payload?.dataUrl || '').replace(/^data:image\/\w+;base64,/, '');
+    if (!base64) return;
+    setModelThumbnail(model.id, base64).catch(() => {});
   }, [model.id]);
 
   const handleError = useCallback((err) => {
+    // Bu kodlar arka planda olan, model gorunumunu ENGELLEMEMESI gereken
+    // hatalardir (ör. ozellik paneli okunamadi, tek bir kare cizimi patladi) -
+    // sadece gelistirme modunda loglanir, tam ekran hata katmani ACILMAZ.
+    if (['POST_FAILED', 'PROPS_FAILED', 'RENDER_FRAME_FAILED'].includes(err?.code)) {
+      if (__DEV__) console.log('[viewer:non-fatal]', err?.code, err?.message);
+      return;
+    }
     const key = ERROR_MESSAGES[err?.code] || 'errors.parseFailed';
     setError({ key, detail: err?.message, code: err?.code });
   }, []);
@@ -123,8 +138,37 @@ export default function ViewerScreen({ route, navigation }) {
     viewer.current?.showAll();
   }, []);
 
+  const clearSelection = useCallback(() => {
+    setSelected(null);
+    viewer.current?.clearSelection();
+  }, []);
+
+  /** Alt cubuktaki "yenile" dugmesi: modeli tum gorunum/olcum/kesit durumunu
+   *  temizleyip ilk acilistaki goruntuye dondurur. */
+  const resetView = useCallback(() => {
+    setHiddenIds(new Set());
+    setSelected(null);
+    setSection(null);
+    setWireframe(false);
+    setExplode(0);
+    setLayerFactors({ x: 0, y: 0, z: 0 });
+    setMeasureMode('none');
+    setWalkPicking(false);
+    setWalking(false);
+    viewer.current?.resetView();
+  }, []);
+
+  /** Kesit araci UI'si tek seferde tek eksen dustunur (secili nokta), ama
+   *  webview tarafindaki SectionTool birden fazla ekseni AYNI ANDA aktif
+   *  tutabilir (assets/viewer/js/tools.js). Eksen degistirildiginde eski
+   *  eksenin duzlemi acikca temizlenmezse, ikisi de kirpma yapmaya devam
+   *  edip kaydiraci yeni eksende surukleseniz de gorunur kesit ilk secilen
+   *  eksende kalmis gibi davranir. */
   const applySection = useCallback((next) => {
-    setSection(next);
+    setSection((prev) => {
+      if (prev?.axis && prev.axis !== next.axis) viewer.current?.clearSection(prev.axis);
+      return next;
+    });
     viewer.current?.setSection(next.axis, next.t, next.flipped);
   }, []);
 
@@ -139,20 +183,25 @@ export default function ViewerScreen({ route, navigation }) {
     if (mode !== 'none') setSheet(null);
   }, []);
 
-  const saveBookmark = useCallback((name) => {
-    pendingBookmarkName.current = name;
-    viewer.current?.requestCamera();
-  }, []);
-
-  const applyBookmark = useCallback((b) => {
-    viewer.current?.setCamera(b.camera);
-    setProjection(b.camera?.projection || 'perspective');
+  /** Yurume dugmesi: mahal (IFCSPACE) verisine bagli olmayan, "nereye
+   *  dokunursan orada yuru" akisi baslatir - bir sonraki dokunuldugu nokta
+   *  baslangic konumu olur (bkz. assets/viewer/js/app.js handleTap). */
+  const startWalkPick = useCallback(() => {
     setSheet(null);
+    setSelected(null);
+    setWalkPicking(true);
+    viewer.current?.armWalkPick();
   }, []);
 
-  const removeBookmark = useCallback((id) => {
-    deleteBookmark(id).then(() => listBookmarks(model.id)).then(setBookmarks).catch(() => {});
-  }, [model.id]);
+  const cancelWalkPick = useCallback(() => {
+    setWalkPicking(false);
+    viewer.current?.cancelWalkPick();
+  }, []);
+
+  const exitWalkthrough = useCallback(() => {
+    setWalking(false);
+    viewer.current?.exitWalkthrough();
+  }, []);
 
   /* ---------------- Yukleme metni ---------------- */
 
@@ -171,16 +220,19 @@ export default function ViewerScreen({ route, navigation }) {
 
   /* ---------------- Render ---------------- */
 
-  const ToolbarButton = ({ icon, onPress, active, badge }) => (
-    <Pressable
-      onPress={onPress}
-      style={[styles.toolbarBtn, active && { backgroundColor: colors.accent }]}
-      hitSlop={6}
-    >
-      <Ionicons name={icon} size={21} color={active ? '#fff' : colors.text} />
-      {badge ? <View style={[styles.badge, { backgroundColor: colors.accent }]} /> : null}
-    </Pressable>
-  );
+  const ToolbarButton = ({ icon, iconFamily, onPress, active, badge }) => {
+    const IconComp = iconFamily === 'mci' ? MaterialCommunityIcons : Ionicons;
+    return (
+      <Pressable
+        onPress={onPress}
+        style={[styles.toolbarBtn, active && { backgroundColor: colors.accent }]}
+        hitSlop={6}
+      >
+        <IconComp name={icon} size={21} color={active ? '#fff' : colors.text} />
+        {badge ? <View style={[styles.badge, { backgroundColor: colors.accent }]} /> : null}
+      </Pressable>
+    );
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: colors.viewerBg }]}>
@@ -196,39 +248,65 @@ export default function ViewerScreen({ route, navigation }) {
         onSelection={handleSelection}
         onMeasurement={handleMeasurement}
         onMeasureState={setMeasureState}
-        onCamera={handleCamera}
+        onWalkStarted={handleWalkStarted}
         onFps={(p) => setFps(p.fps)}
         onError={handleError}
+        onThumbnail={handleThumbnail}
       />
 
-      {/* Ust bar */}
-      <SafeAreaView style={styles.topBar} pointerEvents="box-none">
-        <Pressable
-          onPress={() => navigation.goBack()}
-          style={[styles.roundBtn, { backgroundColor: colors.surface }]}
-          hitSlop={8}
-        >
-          <Ionicons name="chevron-back" size={22} color={colors.text} />
-        </Pressable>
+      {!walking ? (
+        <>
+          {/* Ust bar */}
+          <SafeAreaView style={styles.topBar} pointerEvents="box-none">
+            <Pressable
+              onPress={() => navigation.goBack()}
+              style={[styles.roundBtn, { backgroundColor: colors.surface }]}
+              hitSlop={8}
+            >
+              <Ionicons name="chevron-back" size={22} color={colors.text} />
+            </Pressable>
 
-        <View style={[styles.titleChip, { backgroundColor: colors.surface }]}>
-          <Text style={[styles.title, { color: colors.text }]} numberOfLines={1}>{model.name}</Text>
-          {loaded && stats ? (
-            <Text style={[styles.subtitle, { color: colors.textMuted }]} numberOfLines={1}>
-              {t('viewer.stats', { elements: stats.elements, triangles: Math.round(stats.triangles) })}
-              {settings.showFps ? `  -  ${fps} ${t('viewer.fps')}` : ''}
-            </Text>
+            <View style={[styles.titleChip, { backgroundColor: colors.surface }]}>
+              <Text style={[styles.title, { color: colors.text }]} numberOfLines={1}>{model.name}</Text>
+              {loaded && stats ? (
+                <Text style={[styles.subtitle, { color: colors.textMuted }]} numberOfLines={1}>
+                  {t('viewer.stats', { elements: stats.elements })}
+                  {settings.showFps ? `  -  ${fps} ${t('viewer.fps')}` : ''}
+                </Text>
+              ) : null}
+            </View>
+
+            <Pressable
+              onPress={() => viewer.current?.fit()}
+              style={[styles.roundBtn, { backgroundColor: colors.surface }]}
+              hitSlop={8}
+            >
+              <Ionicons name="scan" size={20} color={colors.text} />
+            </Pressable>
+          </SafeAreaView>
+
+          <SelectionPopup
+            element={!sheet ? selected : null}
+            onShowProperties={() => setSheet('props')}
+            onIsolate={() => selected && isolate([selected.id])}
+            onHide={() => { if (selected) { toggleVisibility([selected.id], true); clearSelection(); } }}
+            onClear={clearSelection}
+          />
+
+          {walkPicking ? (
+            <View style={styles.pickBannerWrap} pointerEvents="box-none">
+              <View style={[styles.pickBanner, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                <Text style={[styles.pickBannerText, { color: colors.text }]} numberOfLines={2}>
+                  {t('viewer.walkPickHint')}
+                </Text>
+                <Pressable onPress={cancelWalkPick} hitSlop={8} style={[styles.iconBtnSmall, { backgroundColor: colors.surfaceAlt }]}>
+                  <Ionicons name="close" size={16} color={colors.text} />
+                </Pressable>
+              </View>
+            </View>
           ) : null}
-        </View>
-
-        <Pressable
-          onPress={() => viewer.current?.fit()}
-          style={[styles.roundBtn, { backgroundColor: colors.surface }]}
-          hitSlop={8}
-        >
-          <Ionicons name="scan" size={20} color={colors.text} />
-        </Pressable>
-      </SafeAreaView>
+        </>
+      ) : null}
 
       {/* Yukleme katmani */}
       {!loaded && !error ? (
@@ -262,21 +340,36 @@ export default function ViewerScreen({ route, navigation }) {
       ) : null}
 
       {/* Alt arac cubugu */}
-      {loaded ? (
+      {loaded && !walking ? (
         <SafeAreaView style={styles.bottomBar} pointerEvents="box-none" edges={['bottom']}>
           <View style={[styles.toolbar, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <ToolbarButton icon="layers-outline" onPress={() => setSheet('tree')} />
             <ToolbarButton icon="information-circle-outline" onPress={() => setSheet('props')} badge={!!selected} />
             <ToolbarButton
-              icon="resize-outline"
+              icon="ruler"
+              iconFamily="mci"
               onPress={() => setSheet('measure')}
               active={measureMode !== 'none'}
             />
-            <ToolbarButton icon="cut-outline" onPress={() => setSheet('display')} active={!!section} />
-            <ToolbarButton icon="eye-outline" onPress={showAll} />
+            <ToolbarButton icon="cut-outline" onPress={() => setSheet('section')} active={!!section} />
+            <ToolbarButton
+              icon="cube-outline"
+              onPress={() => setSheet('display')}
+              active={wireframe || explode > 0 || layerFactors.x > 0 || layerFactors.y > 0 || layerFactors.z > 0}
+            />
+            <ToolbarButton icon="walk-outline" onPress={startWalkPick} active={walkPicking} />
+            <ToolbarButton icon="refresh-outline" onPress={resetView} />
           </View>
         </SafeAreaView>
       ) : null}
+
+      <WalkthroughOverlay
+        visible={walking}
+        onExit={exitWalkthrough}
+        onMove={(x, y) => viewer.current?.walkMove(x, y)}
+        onLook={(x, y) => viewer.current?.walkLook(x, y)}
+        onSpeedChange={(speed) => viewer.current?.setWalkSpeed(speed)}
+      />
 
       {/* Paneller */}
       <ModelTreeSheet
@@ -304,35 +397,35 @@ export default function ViewerScreen({ route, navigation }) {
         visible={sheet === 'measure'}
         onClose={() => setSheet(null)}
         mode={measureMode}
-        snap={measureSnap}
         unit={settings.unit}
         state={measureState}
         onModeChange={changeMeasureMode}
-        onSnapChange={(v) => { setMeasureSnap(v); viewer.current?.setMeasureSnap(v); }}
         onUnitChange={(u) => { update({ unit: u }); viewer.current?.setMeasureUnit(u); }}
         onUndo={() => viewer.current?.measureUndo()}
         onRedo={() => viewer.current?.measureRedo()}
         onClear={() => viewer.current?.measureClear()}
       />
 
-      <DisplaySheet
-        visible={sheet === 'display'}
+      <SectionSheet
+        visible={sheet === 'section'}
         onClose={() => setSheet(null)}
         section={section}
         onSectionChange={applySection}
         onSectionClear={clearSection}
+      />
+
+      <DisplaySheet
+        visible={sheet === 'display'}
+        onClose={() => setSheet(null)}
         wireframe={wireframe}
         onWireframeChange={(v) => { setWireframe(v); viewer.current?.setWireframe(v); }}
-        colorByType={colorByType}
-        onColorByTypeChange={(v) => { setColorByType(v); viewer.current?.setColorByType(v); }}
         explode={explode}
         onExplodeChange={(v) => { setExplode(v); viewer.current?.setExplode(v); }}
-        projection={projection}
-        onProjectionChange={(p) => { setProjection(p); viewer.current?.setProjection(p); }}
-        bookmarks={bookmarks}
-        onSaveBookmark={saveBookmark}
-        onApplyBookmark={applyBookmark}
-        onDeleteBookmark={removeBookmark}
+        layerFactors={layerFactors}
+        onLayerAxisChange={(axis, v) => {
+          setLayerFactors((prev) => ({ ...prev, [axis]: v }));
+          viewer.current?.setLayerSeparate(axis, v);
+        }}
       />
     </View>
   );
@@ -355,6 +448,15 @@ const styles = StyleSheet.create({
   title: { fontSize: 14.5, fontWeight: '700' },
   subtitle: { fontSize: 11, marginTop: 1 },
 
+  pickBannerWrap: { position: 'absolute', top: 62, left: 0, right: 0, alignItems: 'center', paddingHorizontal: 20 },
+  pickBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 10, maxWidth: 340,
+    paddingLeft: 14, paddingRight: 8, paddingVertical: 8, borderRadius: 16, borderWidth: StyleSheet.hairlineWidth,
+    shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 3,
+  },
+  pickBannerText: { flex: 1, fontSize: 13, fontWeight: '600' },
+  iconBtnSmall: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+
   loading: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', padding: 30 },
   loadingCard: {
     alignItems: 'center', gap: 12, paddingVertical: 26, paddingHorizontal: 28,
@@ -368,10 +470,10 @@ const styles = StyleSheet.create({
 
   bottomBar: { position: 'absolute', left: 0, right: 0, bottom: 0, alignItems: 'center', paddingBottom: 10 },
   toolbar: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    paddingHorizontal: 10, paddingVertical: 8, borderRadius: 26, borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 8, paddingVertical: 8, borderRadius: 26, borderWidth: StyleSheet.hairlineWidth,
     shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 5,
   },
-  toolbarBtn: { width: 46, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
-  badge: { position: 'absolute', top: 6, right: 8, width: 7, height: 7, borderRadius: 4 },
+  toolbarBtn: { width: 40, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
+  badge: { position: 'absolute', top: 6, right: 6, width: 7, height: 7, borderRadius: 4 },
 });

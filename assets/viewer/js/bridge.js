@@ -5,15 +5,41 @@ window.SOS = window.SOS || {};
 
   var handlers = {};
 
+  /** NOT: bir onceki surumde burasi hata durumunda TAMAMEN sessiz kaliyordu -
+   *  ozellikle buyuk payload'larda (ör. thumbnail) postMessage'in kendisi
+   *  atarsa hicbir iz kalmiyordu (webview'in kendi console.log'u RN/Metro
+   *  tarafinda goruunmuyor). Simdi boyle bir hata, KUCUK ve garanti sigacak
+   *  ayri bir 'error' mesaji olarak ayrica gonderiliyor - boylece RN
+   *  tarafinda (ViewerScreen) bir hata olarak GORUNUR hale gelir, sessizce
+   *  kaybolmaz. */
   function post(type, payload) {
+    var msg;
     try {
-      var msg = JSON.stringify({ type: type, payload: payload === undefined ? null : payload });
+      msg = JSON.stringify({ type: type, payload: payload === undefined ? null : payload });
+    } catch (e) {
+      reportPostFailure(type, e, 'stringify');
+      return;
+    }
+    try {
       if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
         window.ReactNativeWebView.postMessage(msg);
-      } else {
-        console.log('[SOS->RN]', msg.slice(0, 400));
       }
-    } catch (e) { /* JSON'a cevrilemeyen payload'i sessizce gec */ }
+    } catch (e) {
+      reportPostFailure(type, e, 'send');
+    }
+  }
+
+  function reportPostFailure(type, e, phase) {
+    if (type === 'error') return; // sonsuz donguyu onle
+    try {
+      var tiny = JSON.stringify({
+        type: 'error',
+        payload: { code: 'POST_FAILED', message: type + ' (' + phase + '): ' + String(e && e.message ? e.message : e) }
+      });
+      if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+        window.ReactNativeWebView.postMessage(tiny);
+      }
+    } catch (e2) { /* bu bile basarisiz olursa yapacak bir sey yok */ }
   }
 
   function on(type, fn) { handlers[type] = fn; }

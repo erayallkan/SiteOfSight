@@ -9,29 +9,49 @@ import { useApp } from '../store/AppContext';
 
 /* ---------------- BottomSheet ---------------- */
 
-export function BottomSheet({ visible, onClose, title, children, heightRatio = 0.62, footer }) {
+/** nonModal: true iken RN Modal kullanilmaz - panel sadece kendi alaninda
+ *  dokunuş yakalar, geri kalan ekran (ör. 3B sahne) altta etkilesimde kalir.
+ *  Kesit ve Goruntuleme gibi, acikken sahnenin de oynatilabilmesi gereken
+ *  paneller icin kullanilir. */
+export function BottomSheet({ visible, onClose, title, children, heightRatio = 0.62, footer, nonModal = false }) {
   const { colors } = useApp();
+
+  const panel = (
+    <View
+      style={[
+        s.sheet,
+        { backgroundColor: colors.sheet, borderColor: colors.border, height: `${Math.round(heightRatio * 100)}%` },
+      ]}
+    >
+      <View style={s.grabber}>
+        <View style={[s.grabberBar, { backgroundColor: colors.border }]} />
+      </View>
+      <View style={s.sheetHeader}>
+        <Text style={[s.sheetTitle, { color: colors.text }]} numberOfLines={1}>{title}</Text>
+        <Pressable onPress={onClose} hitSlop={12} style={[s.iconButton, { backgroundColor: colors.surfaceAlt }]}>
+          <Ionicons name="checkmark" size={20} color={colors.text} />
+        </Pressable>
+      </View>
+      <View style={{ flex: 1 }}>{children}</View>
+      {footer ? <View style={[s.sheetFooter, { borderTopColor: colors.border }]}>{footer}</View> : null}
+    </View>
+  );
+
+  if (nonModal) {
+    // NOT: burada ayrica tam ekran bir "box-none" sarmalayici KULLANILMAZ -
+    // WebView uzerine boyle bir sarmalayici koymak ic dokunuslarin
+    // (Pressable/PanResponder) guvenilir sekilde ulasmasini engelliyordu.
+    // panel zaten kendi alaniyla sinirli (bottom'a sabit, height: %X) bir
+    // absolute View oldugu icin ust bar/alt cubukla ayni, kanitlanmis
+    // desenle dogrudan dondurulur.
+    if (!visible) return null;
+    return panel;
+  }
+
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent>
       <Pressable style={[s.backdrop, { backgroundColor: colors.overlay }]} onPress={onClose} />
-      <View
-        style={[
-          s.sheet,
-          { backgroundColor: colors.sheet, borderColor: colors.border, height: `${Math.round(heightRatio * 100)}%` },
-        ]}
-      >
-        <View style={s.grabber}>
-          <View style={[s.grabberBar, { backgroundColor: colors.border }]} />
-        </View>
-        <View style={s.sheetHeader}>
-          <Text style={[s.sheetTitle, { color: colors.text }]} numberOfLines={1}>{title}</Text>
-          <Pressable onPress={onClose} hitSlop={12} style={[s.iconButton, { backgroundColor: colors.surfaceAlt }]}>
-            <Ionicons name="checkmark" size={20} color={colors.text} />
-          </Pressable>
-        </View>
-        <View style={{ flex: 1 }}>{children}</View>
-        {footer ? <View style={[s.sheetFooter, { borderTopColor: colors.border }]}>{footer}</View> : null}
-      </View>
+      {panel}
     </Modal>
   );
 }
@@ -45,20 +65,38 @@ export function Slider({ value, onChange, onChangeEnd, min = 0, max = 1, height 
   const valueRef = useRef(value);
   valueRef.current = value;
 
+  const grantValueRef = useRef(value);
+  const containerRef = useRef(null);
+  const containerPageXRef = useRef(0);
+
   const toValue = (x) => {
     const w = widthRef.current || 1;
     const ratio = Math.min(1, Math.max(0, x / w));
     return min + (max - min) * ratio;
   };
 
+  const clampValue = (v) => Math.min(max, Math.max(min, v));
+
   const responder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: (e) => onChange?.(toValue(e.nativeEvent.locationX)),
+      // NOT: e.nativeEvent.locationX, dokunulan native view'a gore hesaplanir -
+      // thumb dairesine dokunuldugunda locationX, track degil thumb'in kendi
+      // koordinat uzayinda (0-26px) geliyor ve deger geriye sicriyordu. pageX'ten
+      // container'in olculen sayfa konumunu cikararak her zaman track'e gore
+      // sabit bir referans kullanilir.
+      onPanResponderGrant: (e) => {
+        const v = toValue(e.nativeEvent.pageX - containerPageXRef.current);
+        grantValueRef.current = v;
+        onChange?.(v);
+      },
+      // gestureState.dx da ayni sebeple (referans view degisimi) titremeye yol
+      // acmasin diye ilk dokunuş noktasina gore sabit bir referansla olculur.
       onPanResponderMove: (e, g) => {
-        const x = e.nativeEvent.locationX ?? g.moveX;
-        onChange?.(toValue(x));
+        const w = widthRef.current || 1;
+        const delta = (g.dx / w) * (max - min);
+        onChange?.(clampValue(grantValueRef.current + delta));
       },
       onPanResponderRelease: () => onChangeEnd?.(valueRef.current),
       onPanResponderTerminate: () => onChangeEnd?.(valueRef.current),
@@ -67,11 +105,20 @@ export function Slider({ value, onChange, onChangeEnd, min = 0, max = 1, height 
 
   const ratio = max === min ? 0 : (value - min) / (max - min);
 
+  const measureContainer = () => {
+    containerRef.current?.measure((x, y, w, h, pageX) => { containerPageXRef.current = pageX; });
+  };
+
   return (
     <View>
       <View
+        ref={containerRef}
         style={{ height, justifyContent: 'center' }}
-        onLayout={(e) => { widthRef.current = e.nativeEvent.layout.width; setWidth(e.nativeEvent.layout.width); }}
+        onLayout={(e) => {
+          widthRef.current = e.nativeEvent.layout.width;
+          setWidth(e.nativeEvent.layout.width);
+          measureContainer();
+        }}
         {...responder.panHandlers}
       >
         <View style={[s.track, { backgroundColor: colors.surfaceAlt }]}>
@@ -158,8 +205,13 @@ export function SwitchRow({ label, value, onValueChange, icon }) {
 }
 
 export function SectionTitle({ children }) {
-  const { colors } = useApp();
-  return <Text style={[s.sectionTitle, { color: colors.textFaint }]}>{String(children).toUpperCase()}</Text>;
+  const { colors, language } = useApp();
+  // JS'in yerel-ayarsiz toUpperCase()'i 'i' -> 'I' (noktasiz) donusturur; bu
+  // Turkce'de yanlis (dogrusu 'İ', noktali). Dile gore yerel-ayarli buyut.
+  const text = language === 'tr'
+    ? String(children).toLocaleUpperCase('tr-TR')
+    : String(children).toUpperCase();
+  return <Text style={[s.sectionTitle, { color: colors.textFaint }]}>{text}</Text>;
 }
 
 export function Pill({ label, active, onPress, icon, color }) {
@@ -209,7 +261,7 @@ export function ScrollArea({ children, contentStyle }) {
 const s = StyleSheet.create({
   backdrop: { ...StyleSheet.absoluteFillObject },
   sheet: {
-    position: 'absolute', left: 0, right: 0, bottom: 0,
+    position: 'absolute', left: 0, right: 0, bottom: 0, zIndex: 20, elevation: 20,
     borderTopLeftRadius: 22, borderTopRightRadius: 22, borderWidth: StyleSheet.hairlineWidth,
   },
   grabber: { alignItems: 'center', paddingTop: 8 },

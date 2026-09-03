@@ -27,24 +27,6 @@ window.SOS = window.SOS || {};
     return out;
   }
 
-  /* IFC kategorisi -> renk (opsiyonel "tipe gore renklendirme" modu icin) */
-  var TYPE_COLORS = {
-    IFCWALL: 0xBFC4CC, IFCWALLSTANDARDCASE: 0xBFC4CC,
-    IFCSLAB: 0x8E9AAF, IFCROOF: 0x2F4A8C,
-    IFCCOLUMN: 0xD98C4A, IFCBEAM: 0xC2703D,
-    IFCDOOR: 0xB99B58, IFCWINDOW: 0x6FB3D2,
-    IFCSTAIR: 0xA07CC5, IFCSTAIRFLIGHT: 0xA07CC5, IFCRAILING: 0x7A6AA8,
-    IFCFURNISHINGELEMENT: 0x6FA88A, IFCSPACE: 0x4CAF7D,
-    IFCPLATE: 0x9AA5B1, IFCMEMBER: 0xB0752E, IFCCOVERING: 0xCFCFCF,
-    IFCFLOWTERMINAL: 0x59A5B8, IFCFLOWSEGMENT: 0x59A5B8,
-    IFCBUILDINGELEMENTPROXY: 0xAAAAAA, IFCSITE: 0x5A4632, IFCFOOTING: 0x6E6155
-  };
-  function typeColor(typeName) {
-    if (!typeName) return 0xAFAFAF;
-    var c = TYPE_COLORS[String(typeName).toUpperCase()];
-    return typeof c === 'number' ? c : 0xAFAFAF;
-  }
-
   function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
 
   function formatLength(mm, unit) {
@@ -58,7 +40,6 @@ window.SOS = window.SOS || {};
   SOS.util = {
     base64ToBytes: base64ToBytes,
     joinBase64Chunks: joinBase64Chunks,
-    typeColor: typeColor,
     clamp: clamp,
     formatLength: formatLength
   };
