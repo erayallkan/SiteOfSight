@@ -50,12 +50,44 @@
     background:rgba(16,18,24,.92); border:1.5px solid rgba(255,255,255,.6);
     color:#fff; font-size:10px; font-weight:800; line-height:16px; text-align:center;
   }
+  /* Bolunmus ekran: ustte kat plani panosu. GORSEL icerik (harita) app.js'teki
+     renderPlanPane() ile AYNI canvas uzerine scissor/viewport'la cizilir -
+     bu div, arka planı seffaf birakip sadece o bolgedeki dokunuslari
+     (pan/pinch-zoom/tap) yakalamak icin uzerine biner. Boyut/konum
+     app.js computeLayout() ile ayarlanir. */
+  #planPane { position:absolute; display:none; touch-action:none; }
+  /* Plan ile 3B arasindaki suruklenebilir ayirici: dikey surukleme
+     planSplitFrac'i degistirir (bkz. app.js setupPlanDivider). Renkleri
+     (arka plan/kenarlik/tutamac) RN temasindan gelir - bkz. app.js
+     styleDivider(); buradaki degerler sadece renkler RN'den gelmeden onceki
+     ilk boyama icin varsayilandir. Tutamac, bir alt-sayfa (bottom sheet)
+     surukleme koluna benzeyen yuvarlatilmis bir "hap" - suruklenirken
+     (.dragging) biraz buyuyup belirginlesir, tutuldugu belli olsun diye. */
+  #planDivider {
+    position:absolute; left:0; right:0; display:none; touch-action:none;
+    background:rgba(23,27,34,.96);
+    border-top:1px solid rgba(255,255,255,.08);
+    border-bottom:1px solid rgba(255,255,255,.08);
+    cursor:ns-resize;
+  }
+  #planDivider .handle {
+    position:absolute; left:50%; top:50%; width:42px; height:5px;
+    margin:-2.5px 0 0 -21px; border-radius:3px;
+    background:rgba(84,114,224,.92);
+    box-shadow:0 1px 3px rgba(0,0,0,.35);
+    transition: width .12s ease, height .12s ease, margin .12s ease, opacity .12s ease;
+  }
+  #planDivider.dragging .handle {
+    width:56px; height:6px; margin:-3px 0 0 -28px; opacity:.85;
+  }
 </style>
 </head>
 <body>
   <canvas id="gl"></canvas>
   <div id="overlay"><div id="snap"></div><div id="crosshair"></div><div id="hud"></div></div>
   <div id="minimap"><div class="frame"></div><div class="compass">N</div></div>
+  <div id="planPane"></div>
+  <div id="planDivider"><div class="handle"></div></div>
 
   <!-- Vendor: klasik script (ESM DEĞİL) -> file:// altında CORS sorunu yaşanmaz -->
   <script src="./vendor/three.min.js"></script>

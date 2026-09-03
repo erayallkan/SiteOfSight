@@ -64,6 +64,7 @@ export default function ViewerScreen({ route, navigation }) {
 
   const [storeys, setStoreys] = useState([]);
   const [floorIndex, setFloorIndex] = useState(null); // null = tum katlar
+  const [splitOn, setSplitOn] = useState(false); // bolunmus ekran: kat plani + 3B
 
   const [timeline, setTimeline] = useState({
     built: false, loading: false, dates: [], elementsCount: 0, index: null,
@@ -249,6 +250,16 @@ export default function ViewerScreen({ route, navigation }) {
     else viewer.current?.showStorey(storeys[index]?.id);
   }, [storeys]);
 
+  /* ---------------- Bolunmus ekran: kat plani + 3B ---------------- */
+
+  const toggleSplit = useCallback(() => {
+    setSplitOn((prev) => {
+      const next = !prev;
+      viewer.current?.setSplitMode(next);
+      return next;
+    });
+  }, []);
+
   /* ---------------- Zaman tuneli (4D) ---------------- */
 
   const requestTimelineBuild = useCallback(() => {
@@ -364,6 +375,9 @@ export default function ViewerScreen({ route, navigation }) {
         backgroundColor={colors.viewerBg}
         dark={colors.isDark}
         cubeLabels={cubeLabels}
+        surfaceColor={colors.surface}
+        accentColor={colors.accent}
+        borderColor={colors.border}
         showFps={settings.showFps}
         safeBottom={insets.bottom}
         onProgress={handleProgress}
@@ -423,7 +437,7 @@ export default function ViewerScreen({ route, navigation }) {
               style={[styles.roundBtn, { backgroundColor: colors.surface }]}
               hitSlop={8}
             >
-              <Ionicons name="scan" size={20} color={colors.text} />
+              <MaterialCommunityIcons name="fit-to-page-outline" size={20} color={colors.text} />
             </Pressable>
           </SafeAreaView>
 
@@ -436,6 +450,13 @@ export default function ViewerScreen({ route, navigation }) {
           />
 
           <FloorNav storeys={storeys} currentIndex={floorIndex} onChange={changeFloor} />
+
+          {splitOn ? (
+            <View pointerEvents="none" style={[styles.planLabel, { top: insets.top + 58, backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <Ionicons name="map-outline" size={13} color={colors.textMuted} />
+              <Text style={[styles.planLabelText, { color: colors.textMuted }]} numberOfLines={1}>{t('viewer.planView')}</Text>
+            </View>
+          ) : null}
 
           {walkPicking ? (
             <View style={styles.pickBannerWrap} pointerEvents="box-none">
@@ -502,7 +523,6 @@ export default function ViewerScreen({ route, navigation }) {
         <SafeAreaView style={styles.bottomBar} pointerEvents="box-none" edges={['bottom']}>
           <View style={[styles.toolbar, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <ToolbarButton icon="layers-outline" onPress={() => setSheet('tree')} />
-            <ToolbarButton icon="information-circle-outline" onPress={() => setSheet('props')} badge={!!selected} />
             <ToolbarButton
               icon="ruler"
               iconFamily="mci"
@@ -516,6 +536,7 @@ export default function ViewerScreen({ route, navigation }) {
               active={wireframe || xray || explode > 0 || layerFactors.x > 0 || layerFactors.y > 0 || layerFactors.z > 0}
             />
             <ToolbarButton icon="calendar-outline" onPress={() => setSheet('timeline')} active={timeline.index !== null} />
+            <ToolbarButton icon="view-split-horizontal" iconFamily="mci" onPress={toggleSplit} active={splitOn} />
             <ToolbarButton icon="walk-outline" onPress={startWalkPick} active={walkPicking} />
             <ToolbarButton icon="refresh-outline" onPress={resetView} />
           </View>
@@ -619,6 +640,12 @@ const styles = StyleSheet.create({
   },
   title: { fontSize: 14.5, fontWeight: '700' },
   subtitle: { fontSize: 11, marginTop: 1 },
+
+  planLabel: {
+    position: 'absolute', left: 12, flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth,
+  },
+  planLabelText: { fontSize: 11, fontWeight: '600' },
 
   pickBannerWrap: { position: 'absolute', top: 62, left: 0, right: 0, alignItems: 'center', paddingHorizontal: 20 },
   pickBanner: {

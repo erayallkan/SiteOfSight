@@ -32,7 +32,9 @@ window.SOS = window.SOS || {};
     var self = this;
     ['x', 'y', 'z'].forEach(function (a) { if (self.active[a]) list.push(self.planes[a]); });
     this.enabled = list.length > 0;
-    this.env.renderer.localClippingEnabled = this.enabled;
+    // NOT: renderer.localClippingEnabled artik app.js init()'te GLOBAL olarak
+    // acik - plan panosunun kendi kirpma duzlemi (yatay "kesit") kesit araci
+    // kapaliyken de calismali, bu yuzden burada KAPATILMIYOR.
     if (structureChanged) {
       this.env.forEachMaterial(function (m) {
         m.clippingPlanes = list.length ? list : null;

@@ -42,6 +42,33 @@
   var MINIMAP_LAYER = 1;
   var MINIMAP_RADIUS_M = 9; // minimap'in gosterdigi yaricap (m), gercek dunya olcusunde
 
+  /* Bolunmus ekran: ustte kat plani, altta 3B - aralarinda suruklenebilir bir
+   *  ayirici. Ayni WebGL context/sahne icinde ikinci bir ortografik (ustten,
+   *  kuzey-yukari) kamera; minimap'teki scissor-viewport teknigi
+   *  genellestirilerek her zaman (yurume modu disinda) acilabilir, pan/zoom
+   *  edilebilir, dokunulabilir hale getirildi. Model IKINCI kez yuklenmez -
+   *  tek WebView/tek sahne uzerinden iki viewport cizilir. 3B viewport artik
+   *  tam ekran degil (mainRect) oldugu icin kamera aspect'i, pick/toScreen ve
+   *  ViewCube de mainRect'e gore hesaplanir (asagida applyMainRectToCameras,
+   *  pick, toScreen, handleTap). */
+  var planCam = null;
+  var planMarker = null;
+  var PLAN_LAYER = 2;
+  var splitMode = false;
+  var currentStoreyId = null; // showStorey ile secilen kat - plani ona gore cerceveler
+  var mainRect = { x: 0, y: 0, w: 0, h: 0 }; // 3B viewport, CSS px, DOM ust-orijin
+  var planRect = { x: 0, y: 0, w: 0, h: 0 }; // plan viewport, CSS px, DOM ust-orijin
+  var DIVIDER_PX = 22; // suruklenebilir ayiricinin dokunma yuksekligi
+  var planSplitFrac = 0.42; // plan panosunun ekran yuksekligine orani (ayiriciyla degisir)
+  var PLAN_SPLIT_MIN = 0.18, PLAN_SPLIT_MAX = 0.72;
+  var planPan = { x: 0, z: 0 };  // kullanicinin plan uzerinde kaydirdigi ek ofset (dunya birimi)
+  var planZoom = 1;              // otomatik cerceveye ek carpan (1 = binaya/kata tam sigdir)
+  var planViewState = null;      // son cizilen plan karesinin {halfW, halfH} - pan/tap donusumleri icin
+  var planEdgesMesh = null;      // binanin "pafta" cizgileri - bkz. rebuildPlanEdgesGeometry()
+  var planEdgesDirty = true;     // true iken bir sonraki plan karesinden once yeniden birlestirilir
+  var PLAN_EDGE_ANGLE_DEG = 25;  // bu acidan DUSUK komsu yuz farkli kenarlar (ör. ucgenlestirme capraz cizgileri) ATLANIR
+  var PLAN_EDGE_MAX_INSTANCES = 15000; // asiri buyuk modellerde tek seferde birlestirilecek instance sinirlaması
+
   /** Yurume modunda kamerayi her zaman genis-aci FOV'a ayarlar (hizdan bagimsiz). */
   function updateWalkFov() {
     if (!perspCamera) return;
@@ -136,6 +163,10 @@
     quality.pixelRatio = quality.target;
     renderer.setPixelRatio(quality.pixelRatio);
     renderer.setClearColor(bg, 1);
+    // Kesit araci kapaliyken de plan panosunun yatay "kesit" kirpma duzlemi
+    // (renderPlanPane) calissin diye global olarak acik birakilir - SectionTool
+    // artik kendi enabled durumuna gore bunu KAPATMIYOR (bkz. tools.js _apply).
+    renderer.localClippingEnabled = true;
 
     scene = new THREE.Scene();
 
@@ -160,6 +191,8 @@
     // ekranin tepesinden belirgin bosluklu yerlestirilir.
     cube = new SOS.ViewCube({ size: 78, marginRight: 16, marginTop: 112, dark: true });
     setupMinimap();
+    setupPlanPane();
+    setupPlanDivider();
 
     var env = makeEnv();
     section = new SOS.SectionTool(env);
@@ -237,16 +270,60 @@
   function resize() {
     var w = window.innerWidth, h = window.innerHeight;
     renderer.setSize(w, h, false);
-    var aspect = w / Math.max(h, 1);
-    perspCamera.aspect = aspect;
-    perspCamera.updateProjectionMatrix();
-    updateOrthoFrustum();
+    computeLayout();
     positionMinimapFrame();
     needsRender = true;
   }
 
+  /** 3B (mainRect) ve plan (planRect) viewport dikdortgenlerini, split
+   *  modu/yon/ayirici konumuna gore yeniden hesaplar; DOM dokunma
+   *  katmanlarini (#planPane, #planDivider) da ayni dikdortgenlere tasir.
+   *  splitMode kapaliysa 3B viewport tam ekrandir. splitMode ACIKKEN yurume
+   *  moduna gecilse BILE plan panosu gorunur kalir (kullanici plani gorerek
+   *  yururken nerede oldugunu takip edebilsin diye) - walk.active burada
+   *  ARTIK bir istisna degil. */
+  function computeLayout() {
+    var w = window.innerWidth, h = window.innerHeight;
+    var planEl = document.getElementById('planPane');
+    var divEl = document.getElementById('planDivider');
+    if (!splitMode) {
+      mainRect = { x: 0, y: 0, w: w, h: h };
+      planRect.w = 0; planRect.h = 0;
+      if (planEl) planEl.style.display = 'none';
+      if (divEl) divEl.style.display = 'none';
+      applyMainRectToCameras();
+      return;
+    }
+
+    var planH = Math.round(SOS.util.clamp(h * planSplitFrac, h * PLAN_SPLIT_MIN, h * PLAN_SPLIT_MAX));
+    planRect = { x: 0, y: 0, w: w, h: planH };
+    mainRect = { x: 0, y: planH + DIVIDER_PX, w: w, h: Math.max(h - planH - DIVIDER_PX, 40) };
+
+    if (planEl) {
+      planEl.style.display = 'block';
+      planEl.style.left = '0px'; planEl.style.top = '0px';
+      planEl.style.width = w + 'px'; planEl.style.height = planH + 'px';
+    }
+    if (divEl) {
+      divEl.style.display = 'block';
+      divEl.style.left = '0px'; divEl.style.top = planH + 'px';
+      divEl.style.width = w + 'px'; divEl.style.height = DIVIDER_PX + 'px';
+    }
+    applyMainRectToCameras();
+  }
+
+  /** perspCamera.aspect ve ortografik cerceveyi TAM EKRAN yerine mainRect'in
+   *  (3B viewport) olcusune gore ayarlar - splitMode acikken goruntu bozulmasin diye. */
+  function applyMainRectToCameras() {
+    var aspect = mainRect.w / Math.max(mainRect.h, 1);
+    perspCamera.aspect = aspect;
+    perspCamera.updateProjectionMatrix();
+    updateOrthoFrustum();
+    needsRender = true;
+  }
+
   function updateOrthoFrustum() {
-    var aspect = window.innerWidth / Math.max(window.innerHeight, 1);
+    var aspect = mainRect.w / Math.max(mainRect.h, 1);
     // Ortografik cerceve modelin sinir kuresine gore sabitlenir; yakinlastirma
     // camera.zoom ile yapilir. Portre ekranda genislik dar kaldigi icin aspect'e bolunur.
     var half;
@@ -268,15 +345,15 @@
   function toScreen(v) {
     var p = v.clone().project(camera);
     return {
-      x: (p.x * 0.5 + 0.5) * window.innerWidth,
-      y: (-p.y * 0.5 + 0.5) * window.innerHeight,
+      x: mainRect.x + (p.x * 0.5 + 0.5) * mainRect.w,
+      y: mainRect.y + (-p.y * 0.5 + 0.5) * mainRect.h,
       z: p.z
     };
   }
 
   /** Verilen dunya noktasinda 1 pikselin dunya birimi karsiligi. */
   function pixelWorldScale() {
-    var h = Math.max(window.innerHeight, 1);
+    var h = Math.max(mainRect.h, 1);
     if (camera.isOrthographicCamera) {
       var s = (camera.top - camera.bottom) / camera.zoom / h;
       return function () { return s; };
@@ -332,8 +409,8 @@
   function pick(x, y) {
     if (!model) return null;
     var ndc = new THREE.Vector2(
-      (x / window.innerWidth) * 2 - 1,
-      -(y / window.innerHeight) * 2 + 1
+      ((x - mainRect.x) / mainRect.w) * 2 - 1,
+      -((y - mainRect.y) / mainRect.h) * 2 + 1
     );
     raycaster.setFromCamera(ndc, camera);
     return resolveHit(raycaster.intersectObjects(visibleMeshes(), false));
@@ -352,7 +429,7 @@
 
   function handleTap(x, y) {
     // ViewCube once kontrol edilir
-    var faceHit = cube.hitTest(x, y, canvas);
+    var faceHit = cube.hitTest(x, y, mainRect);
     if (faceHit) {
       goToDirection(faceHit.dir, true);
       post('viewCube', { face: faceHit.key });
@@ -512,6 +589,18 @@
     needsRender = true;
   }
 
+  /** Kat planinda tiklanan (veya RN'den gelen) rastgele bir dunya noktasina
+   *  kamerayi ceker - focusOn'un elemana degil, serbest noktaya odaklanan
+   *  hali. Radius modelin genel olcegine gore makul bir "yakinlik" secer. */
+  function flyToPoint(x, y, z) {
+    if (!model) return;
+    controls.target.set(x, y, z);
+    var span = model.bbox.getSize(new THREE.Vector3()).length() || 10;
+    controls.spherical.radius = Math.max(span * 0.05, (controls.minDistance || 0.01) * 4);
+    updateOrthoFrustum();
+    needsRender = true;
+  }
+
   /* ---------------- Kamera ---------------- */
 
   function fit(padding, targetBox) {
@@ -609,6 +698,7 @@
     walk.active = true;
     updateWalkFov();
     setMinimapFrameVisible(true);
+    computeLayout(); // mainRect (perspCamera aspect) yurume icin yeniden hesaplanir - splitMode aciksa plan gorunur kalir
     needsRender = true;
   }
 
@@ -621,6 +711,7 @@
       perspCamera.updateProjectionMatrix();
     }
     setMinimapFrameVisible(false);
+    computeLayout();
     fit(1.12);
   }
 
@@ -800,6 +891,382 @@
     if (el) el.style.display = 'none';
   }
 
+  /* ---------------- Bolunmus ekran: kat plani panosu (ustte) ---------------- */
+
+  /** Plan panosunun DOM dokunma alanini (#planPane) olusturur; tek parmak
+   *  suruklemeyi PAN, iki parmagi PINCH-ZOOM, hareketsiz hizli dokunusu ise
+   *  "3B'ye isinlan" (flyToPoint) olarak yorumlar. Panonun GORSEL icerigi ayni
+   *  <canvas>'a renderPlanPane() ile scissor/viewport'la cizilir; bu div
+   *  sadece o bolgedeki dokunuslari yakalayip TouchControls'un (orbit)
+   *  canvas'taki dinleyicilerine ulasmasini engellemek icin uzerine binen
+   *  SEFFAF bir katmandir. */
+  /** Duz (Y=0 duzleminde, +Z = "ileri") bir yelpaze/pasta-dilimi geometrisi -
+   *  plan panosundaki "bakis yonu" konisini cizmek icin. Tepe noktasi
+   *  origin'de; acisi disinda kalir. */
+  function makeConeFanGeometry(halfAngleRad, segments, radius) {
+    var positions = [0, 0, 0];
+    for (var i = 0; i <= segments; i++) {
+      var a = -halfAngleRad + (2 * halfAngleRad) * (i / segments);
+      positions.push(Math.sin(a) * radius, 0, Math.cos(a) * radius);
+    }
+    var indices = [];
+    for (var i = 1; i <= segments; i++) indices.push(0, i, i + 1);
+    var geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geo.setIndex(indices);
+    return geo;
+  }
+
+  function setupPlanPane() {
+    planCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 1e6);
+    planCam.up.set(0, 0, -1); // kuzey-yukari sabit
+    // .set() (enable DEGIL): planCam SADECE PLAN_LAYER'i gorur, varsayilan
+    // katmandaki (0) duz-dolgulu model meshleri planCam'a HIC girmez - "pafta"
+    // gorunumu icin bunlarin yerine planEdgesMesh (asagida) cizilir.
+    planCam.layers.set(PLAN_LAYER);
+
+    // Binanin "pafta" cizgileri: her instance icin EdgesGeometry (sadece
+    // siluet/kirisim kenarlari - ic ucgenlestirme capraz cizgileri HARIC)
+    // dunya uzayina donusturulup TEK bir LineSegments'ta birlestirilir - bkz.
+    // rebuildPlanEdgesGeometry(). Boylece InstancedMesh'in normal tel-kafes
+    // modunda gorulen "gereksiz capraz cizgiler" ortadan kalkar.
+    var planEdgesMat = new THREE.LineBasicMaterial({
+      color: 0xAFE0FF, transparent: true, opacity: 0.92
+    });
+    planEdgesMesh = new THREE.LineSegments(new THREE.BufferGeometry(), planEdgesMat);
+    planEdgesMesh.layers.set(PLAN_LAYER);
+    planEdgesMesh.frustumCulled = false;
+    planEdgesMesh.visible = false;
+    scene.add(planEdgesMesh);
+
+    // "Sen buradasin" isaretcisi: merkezde bir nokta + one dogru acilan
+    // yari-saydam bir bakis-yonu konisi (dolgu + net kenar cizgisi) - 3B
+    // kameranin o an nereye ve HANGI YONE baktigini plan uzerinde gosterir.
+    planMarker = new THREE.Group();
+    planMarker.renderOrder = 9999;
+    planMarker.visible = false;
+
+    var dotMat = new THREE.MeshBasicMaterial({
+      color: 0x4C6FE0, depthTest: false, depthWrite: false,
+      transparent: true, opacity: 0.95, side: THREE.DoubleSide
+    });
+    var dot = new THREE.Mesh(new THREE.CircleGeometry(1, 24), dotMat);
+    dot.rotation.x = -Math.PI / 2;
+    dot.layers.set(PLAN_LAYER);
+    dot.frustumCulled = false;
+    planMarker.add(dot);
+
+    var coneGeo = makeConeFanGeometry(THREE.MathUtils.degToRad(34), 20, 3.4);
+    var coneFillMat = new THREE.MeshBasicMaterial({
+      color: 0x4C6FE0, depthTest: false, depthWrite: false,
+      transparent: true, opacity: 0.28, side: THREE.DoubleSide
+    });
+    var coneFill = new THREE.Mesh(coneGeo, coneFillMat);
+    coneFill.layers.set(PLAN_LAYER);
+    coneFill.frustumCulled = false;
+    planMarker.add(coneFill);
+
+    var coneEdgeMat = new THREE.LineBasicMaterial({
+      color: 0xBFD4FF, depthTest: false, transparent: true, opacity: 0.95
+    });
+    var coneEdge = new THREE.LineSegments(new THREE.EdgesGeometry(coneGeo), coneEdgeMat);
+    coneEdge.layers.set(PLAN_LAYER);
+    coneEdge.frustumCulled = false;
+    planMarker.add(coneEdge);
+
+    scene.add(planMarker);
+
+    var el = document.getElementById('planPane');
+    if (!el) return;
+    var DRAG_PX = 10;
+    var TAP_MS = 350;
+    var pointers = [];   // {id, x, y}
+    var press = null;    // {x, y, moved, t} - tek parmakla baslayan basinc (tap/pan ayrimi)
+    var pinchDist0 = 0;
+    var zoom0 = 1;
+
+    function idx(id) { for (var i = 0; i < pointers.length; i++) if (pointers[i].id === id) return i; return -1; }
+    function dist() { var a = pointers[0], b = pointers[1]; return Math.hypot(a.x - b.x, a.y - b.y); }
+
+    el.addEventListener('pointerdown', function (e) {
+      pointers.push({ id: e.pointerId, x: e.clientX, y: e.clientY });
+      if (pointers.length === 1) {
+        press = { x: e.clientX, y: e.clientY, moved: false, t: Date.now() };
+      } else if (pointers.length === 2) {
+        press = null; // ikinci parmak: tap adayi iptal, pinch basliyor
+        pinchDist0 = dist();
+        zoom0 = planZoom;
+      }
+    });
+    el.addEventListener('pointermove', function (e) {
+      var i = idx(e.pointerId);
+      if (i < 0) return;
+      var prev = { x: pointers[i].x, y: pointers[i].y };
+      pointers[i].x = e.clientX; pointers[i].y = e.clientY;
+
+      if (pointers.length === 1) {
+        var dx = e.clientX - prev.x, dy = e.clientY - prev.y;
+        if (press && Math.hypot(e.clientX - press.x, e.clientY - press.y) > DRAG_PX) press.moved = true;
+        if (!press || press.moved) planPanByPixels(dx, dy);
+      } else if (pointers.length === 2) {
+        var d = dist();
+        if (pinchDist0 > 0) {
+          planZoom = SOS.util.clamp(zoom0 * (d / pinchDist0), 0.2, 25);
+          needsRender = true;
+        }
+      }
+    });
+    el.addEventListener('pointerup', function (e) {
+      var wasTap = pointers.length === 1 && press && !press.moved && (Date.now() - press.t) < TAP_MS;
+      var i = idx(e.pointerId);
+      if (i >= 0) pointers.splice(i, 1);
+      if (wasTap) planTap(e.clientX, e.clientY);
+      if (pointers.length < 2) pinchDist0 = 0;
+      if (pointers.length === 0) press = null;
+    });
+    el.addEventListener('pointercancel', function (e) {
+      var i = idx(e.pointerId);
+      if (i >= 0) pointers.splice(i, 1);
+      press = null; pinchDist0 = 0;
+    });
+  }
+
+  /** Suruklenebilir ayirici (#planDivider): dikey surukleme plan panosunun
+   *  ekran yuksekligindeki payini (planSplitFrac) degistirir. Surukleme
+   *  sirasinda '.dragging' sinifi eklenir (bkz. index.html - tutamac buyur/
+   *  vurgulanir, tutuldugu belli olsun diye). */
+  function setupPlanDivider() {
+    var el = document.getElementById('planDivider');
+    if (!el) return;
+    var dragging = false;
+    var startY = 0, startFrac = 0;
+    el.addEventListener('pointerdown', function (e) {
+      dragging = true; startY = e.clientY; startFrac = planSplitFrac;
+      el.classList.add('dragging');
+      if (el.setPointerCapture) { try { el.setPointerCapture(e.pointerId); } catch (err) {} }
+    });
+    el.addEventListener('pointermove', function (e) {
+      if (!dragging) return;
+      var h = window.innerHeight;
+      planSplitFrac = SOS.util.clamp(startFrac + (e.clientY - startY) / h, PLAN_SPLIT_MIN, PLAN_SPLIT_MAX);
+      computeLayout();
+    });
+    function end() { dragging = false; el.classList.remove('dragging'); }
+    el.addEventListener('pointerup', end);
+    el.addEventListener('pointercancel', end);
+  }
+
+  /** Uygulamanin (RN tarafinin) tema renklerini ayiriciya uygular - bkz.
+   *  on('setTheme'). WebView'in kendi CSS renkleri sadece ilk boyama/geri
+   *  dususu icindir; asil renkler RN'den gelir ki acik/koyu temada ve marka
+   *  rengiyle tutarli görünsün. */
+  function styleDivider(surfaceHex, accentHex, borderHex) {
+    var el = document.getElementById('planDivider');
+    if (!el) return;
+    var handle = el.querySelector('.handle');
+    if (surfaceHex) el.style.background = surfaceHex;
+    if (borderHex) { el.style.borderTopColor = borderHex; el.style.borderBottomColor = borderHex; }
+    if (handle && accentHex) handle.style.background = accentHex;
+  }
+
+  /** Ekran piksel-farkini (surukleme) plan panosunun dunya-birimi ek
+   *  ofsetine (planPan) cevirir - kaydirarak (pan) gezinme. Isaretler,
+   *  TouchControls._pan ile ayni "icerik parmagi takip eder" kuralini
+   *  kullanir. */
+  function planPanByPixels(dxPx, dyPx) {
+    if (!planViewState || planRect.h < 10) return;
+    var worldPerPxX = (2 * planViewState.halfW) / planRect.w;
+    var worldPerPxY = (2 * planViewState.halfH) / planRect.h;
+    planPan.x -= dxPx * worldPerPxX;
+    planPan.z -= dyPx * worldPerPxY;
+    needsRender = true;
+  }
+
+  /** Plan panosunun cerceveleyecegi kutu: bir kat secilmisse (showStorey) o
+   *  katin elemanlari, aksi halde tum modelin sinir kutusu. */
+  function currentPlanBox() {
+    if (!model || model.bbox.isEmpty()) return null;
+    if (currentStoreyId != null && model.storeyElements) {
+      var ids = model.storeyElements.get(currentStoreyId);
+      if (ids && ids.length) {
+        var box = new THREE.Box3();
+        for (var i = 0; i < ids.length; i++) {
+          var b = model.getElementBox(ids[i]);
+          if (b) box.union(b);
+        }
+        if (!box.isEmpty()) return box;
+      }
+    }
+    return model.bbox;
+  }
+
+  var PLAN_CUT_HEIGHT_M = 1.2; // mimari pafta gelenegi: taban+~1.2m'de yatay kesit
+  var planCutPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), 0);
+  var PLAN_BG = 0x0B1622; // "pafta" hissi icin plan panosuna ozel koyu lacivert zemin
+
+  /** Gorunur (isolate/hide sonrasi da) her instance icin, o instance'in baz
+   *  geometrisinin EdgesGeometry'sini (SADECE siluet/kirisim kenarlari -
+   *  komsu iki ucgenin yuz normali PLAN_EDGE_ANGLE_DEG'den AZ farkliysa o
+   *  kenar atlanir; ör. duz bir duvar yuzeyini ikiye bolen ucgenlestirme
+   *  capraz cizgisi boylece hic uretilmez) dunya uzayina tasiyip TEK bir
+   *  LineSegments'ta (planEdgesMesh) birlestirir. Sadece floor/visibility
+   *  degisince (planEdgesDirty) yeniden hesaplanir - her karede DEGIL. */
+  function rebuildPlanEdgesGeometry() {
+    planEdgesDirty = false;
+    if (!model || !model.groups.length) {
+      planEdgesMesh.geometry.dispose();
+      planEdgesMesh.geometry = new THREE.BufferGeometry();
+      planEdgesMesh.visible = false;
+      return;
+    }
+
+    var edgesCache = new Map(); // base geometry -> edge pozisyon dizisi (Float32Array | null)
+    var chunks = [];
+    var totalLen = 0;
+    var used = 0;
+    var v = new THREE.Vector3();
+
+    outer:
+    for (var gi = 0; gi < model.groups.length; gi++) {
+      var g = model.groups[gi];
+      var mesh = g.mesh;
+      var baseGeo = mesh.geometry;
+      var edgePos = edgesCache.get(baseGeo);
+      if (edgePos === undefined) {
+        var eg = new THREE.EdgesGeometry(baseGeo, PLAN_EDGE_ANGLE_DEG);
+        var posAttr = eg.getAttribute('position');
+        edgePos = posAttr ? posAttr.array : null;
+        eg.dispose();
+        edgesCache.set(baseGeo, edgePos);
+      }
+      if (!edgePos || !edgePos.length) continue;
+
+      var meshWorld = mesh.matrixWorld;
+      for (var i = 0; i < g.expressIDs.length; i++) {
+        if (!g.visibleFlags[i]) continue;
+        if (used >= PLAN_EDGE_MAX_INSTANCES) break outer;
+        used++;
+        var world = new THREE.Matrix4().multiplyMatrices(meshWorld, g.base[i]);
+        var out = new Float32Array(edgePos.length);
+        for (var p = 0; p < edgePos.length; p += 3) {
+          v.set(edgePos[p], edgePos[p + 1], edgePos[p + 2]).applyMatrix4(world);
+          out[p] = v.x; out[p + 1] = v.y; out[p + 2] = v.z;
+        }
+        chunks.push(out);
+        totalLen += out.length;
+      }
+    }
+
+    planEdgesMesh.geometry.dispose();
+    if (!chunks.length) {
+      planEdgesMesh.geometry = new THREE.BufferGeometry();
+      planEdgesMesh.visible = false;
+      return;
+    }
+    var merged = new Float32Array(totalLen);
+    var offset = 0;
+    for (var c = 0; c < chunks.length; c++) { merged.set(chunks[c], offset); offset += chunks[c].length; }
+    var geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(merged, 3));
+    planEdgesMesh.geometry = geo;
+    planEdgesMesh.visible = true;
+  }
+
+  /** Ana kareden SONRA, ayni canvas'in ust seridine (scissor ile
+   *  sinirlanmis) ustten bakan ikinci bir viewport olarak cizilir - minimap
+   *  ile ayni teknik, ama her zaman acik/tiklanabilir, pan/zoom edilebilir ve
+   *  tum kati/binayi kapsar. Binayi, gercek bir mimari pafta gibi okunsun diye
+   *  planEdgesMesh (SADECE siluet/kirisim cizgileri - ic ucgenlestirme
+   *  YOKTUR) taban kotunun ~1.2m ustunden yatay bir "kesit" duzlemiyle
+   *  kirpilarak cizilir (cati/ust kat gorusu engellemez). */
+  function renderPlanPane() {
+    if (!splitMode || !planCam || planRect.w < 10 || planRect.h < 10) return;
+    var box = currentPlanBox();
+    if (!box) return;
+    if (planEdgesDirty) rebuildPlanEdgesGeometry();
+
+    var baseCenter = box.getCenter(new THREE.Vector3());
+    var size = box.getSize(new THREE.Vector3());
+    var half = Math.max((Math.max(size.x, size.z) * 0.5 * 1.08 || 1) / planZoom, 1e-3);
+    var aspect = planRect.w / Math.max(planRect.h, 1);
+    var halfW, halfH;
+    if (aspect >= 1) { halfW = half * aspect; halfH = half; }
+    else { halfW = half; halfH = half / aspect; }
+    planCam.left = -halfW; planCam.right = halfW;
+    planCam.top = halfH; planCam.bottom = -halfH;
+
+    var cx = baseCenter.x + planPan.x;
+    var cz = baseCenter.z + planPan.z;
+    var height = Math.max(size.x, size.y, size.z, 1) * 3;
+    planCam.position.set(cx, box.max.y + height, cz);
+    planCam.near = 0.1;
+    planCam.far = height * 2 + 10;
+    planCam.lookAt(cx, box.min.y, cz);
+    planCam.updateProjectionMatrix();
+    planViewState = { halfW: halfW, halfH: halfH };
+
+    // Yatay kesit: taban kotunun ~1.2m ustunde - catiyi/ust yapiyi disarida
+    // birakip alttaki oda duzenini gorunur kilar (gercek bir kat plani gibi).
+    var mmPerUnit = (model && model._lengthScaleToMm) || 1000;
+    var cutY = Math.min(box.min.y + (PLAN_CUT_HEIGHT_M * 1000) / mmPerUnit, box.min.y + size.y * 0.92);
+    planCutPlane.constant = cutY;
+    planEdgesMesh.material.clippingPlanes = activeClipPlanes().concat([planCutPlane]);
+
+    // "Sen buradasin" isaretcisi: YURUME MODUNDA gercek oyuncu konumu/yonunu
+    // (walk.position/walk.yaw) izler - orbit modunda ise 3B kameranin baktigi
+    // noktayi (controls.target) ve bakis yonunu gosterir. Boylece 3B'de
+    // yururken plan uzerindeki isaretci de AYNI ANDA, ayni yonde hareket eder.
+    var markerX, markerZ, heading;
+    if (walk.active) {
+      markerX = walk.position.x; markerZ = walk.position.z;
+      heading = walk.yaw;
+    } else {
+      markerX = controls.target.x; markerZ = controls.target.z;
+      var lookDir = new THREE.Vector3(controls.target.x - camera.position.x, 0, controls.target.z - camera.position.z);
+      heading = lookDir.lengthSq() > 1e-8 ? Math.atan2(lookDir.x, lookDir.z) : 0;
+    }
+    planMarker.visible = true;
+    planMarker.position.set(markerX, cutY + 1e-3, markerZ);
+    planMarker.rotation.y = heading;
+    planMarker.scale.setScalar(Math.max(halfW, halfH) * 0.022 || 0.15);
+
+    var x = Math.round(planRect.x);
+    var yGl = Math.round(window.innerHeight - planRect.y - planRect.h); // DOM ust-orijin -> GL alt-orijin
+    var w = Math.round(planRect.w), hh = Math.round(planRect.h);
+    renderer.setClearColor(PLAN_BG, 1);
+    renderer.setScissorTest(true);
+    renderer.setScissor(x, yGl, w, hh);
+    renderer.setViewport(x, yGl, w, hh);
+    renderer.render(scene, planCam);
+    renderer.setScissorTest(false);
+    renderer.setClearColor(bg, 1);
+  }
+
+  /** Plan panosunda tiklanan ekran noktasini planCam ile isinlayip alttaki
+   *  dunya noktasindaki (x,z) konumu bulur; bulunursa 3B YURUME MODUNA
+   *  gecilir ve kullanici o noktada "yerde durur" halde baslar (dalux tarzi
+   *  "plandan 3B'ye isinlanma"). Eleman SECILMEZ. Ustten bakan isinin Y'si
+   *  CATI/TAVAN gibi bir ust yuzey olabileceginden (kus bakisi ilk isabet),
+   *  yurume baslangic yuksekligi icin gercek taban kotu yerine o an
+   *  gosterilen katin (ya da tum bina seciliyse binanin) ALT sinirindan
+   *  alinir - enterWalkthroughAtPoint zaten buna goz yuksekligi ekler. */
+  function planTap(clientX, clientY) {
+    if (!model || planRect.w < 10) return;
+    var ndc = new THREE.Vector2(
+      ((clientX - planRect.x) / planRect.w) * 2 - 1,
+      -((clientY - planRect.y) / planRect.h) * 2 + 1
+    );
+    raycaster.setFromCamera(ndc, planCam);
+    var hit = resolveHit(raycaster.intersectObjects(visibleMeshes(), false));
+    if (!hit) return;
+
+    var box = currentPlanBox();
+    var floorY = box ? box.min.y : hit.point.y;
+    walkPicking = false;
+    enterWalkthroughAtPoint(new THREE.Vector3(hit.point.x, floorY, hit.point.z));
+    post('walkStarted', {});
+  }
+
   /** Ana kareden SONRA, ayni canvas'in kucuk bir kosesine (scissor ile
    *  sinirlanmis) ikinci bir viewport olarak cizilir - ek render hedefi
    *  (render target) gerektirmez. Sadece MINIMAP_LAYER'daki mermer/model
@@ -906,10 +1373,20 @@
     cube.sync(camera, walk.active ? walk.lookTarget : controls.target);
 
     try {
+      // Tum canvas once temizlenir (splitMode acikken ayirici seridinde eski
+      // piksel kalmasin diye); asil 3B ise ardindan mainRect'e scissor'lanir.
+      renderer.setScissorTest(false);
       renderer.setViewport(0, 0, window.innerWidth, window.innerHeight);
+      renderer.clear();
+      var mainGlY = window.innerHeight - mainRect.y - mainRect.h;
+      renderer.setScissorTest(true);
+      renderer.setScissor(mainRect.x, mainGlY, mainRect.w, mainRect.h);
+      renderer.setViewport(mainRect.x, mainGlY, mainRect.w, mainRect.h);
       renderer.render(scene, camera);
-      cube.render(renderer, canvas);
+      renderer.setScissorTest(false);
+      cube.render(renderer, mainRect);
       if (walk.active) renderMinimap();
+      if (splitMode) renderPlanPane();
     } catch (e) {
       // Bir kare cizimi patlarsa (ör. clipping ile shader recompile hatasi) render
       // dongusunu ASLA durdurma; hatayi bildirip devam et, sahne tamamen kaybolmasin.
@@ -988,6 +1465,9 @@
       walk.active = false;
       walkPicking = false;
       setMinimapFrameVisible(false);
+      currentStoreyId = null;
+      planPan.x = 0; planPan.z = 0; planZoom = 1;
+      planEdgesDirty = true;
       controls.enabled = true;
       visibility.showAll();
       visibility.setXray(false);
@@ -1026,6 +1506,9 @@
     walk.active = false;
     walkPicking = false;
     setMinimapFrameVisible(false);
+    currentStoreyId = null;
+    planPan.x = 0; planPan.z = 0; planZoom = 1;
+    planEdgesDirty = true;
     controls.enabled = true;
     visibility.showAll();
     visibility.setXray(false);
@@ -1045,6 +1528,7 @@
     bg = parseInt(String(p.background || '#20232A').replace('#', ''), 16);
     renderer.setClearColor(bg, 1);
     cube.setLabels(p.cubeLabels || null, p.dark !== false);
+    styleDivider(p.surface, p.accent, p.border);
     needsRender = true;
   });
 
@@ -1061,10 +1545,10 @@
   on('section', function (p) { section.set(p.axis, p.t, p.flipped); warmup(800); });
   on('clearSection', function (p) { section.clear(p && p.axis); warmup(800); });
 
-  on('hide', function (p) { visibility.hide(p.ids); });
-  on('show', function (p) { visibility.show(p.ids); });
-  on('isolate', function (p) { visibility.isolate(p.ids); });
-  on('showAll', function () { visibility.showAll(); clearSelection(); });
+  on('hide', function (p) { visibility.hide(p.ids); planEdgesDirty = true; });
+  on('show', function (p) { visibility.show(p.ids); planEdgesDirty = true; });
+  on('isolate', function (p) { visibility.isolate(p.ids); planEdgesDirty = true; });
+  on('showAll', function () { visibility.showAll(); clearSelection(); planEdgesDirty = true; });
   on('wireframe', function (p) { visibility.setWireframe(p.enabled); });
   on('explode', function (p) { explode.setRadial(p.factor || 0); });
   on('layerSeparate', function (p) { explode.setLayer(p.axis, p.factor || 0); });
@@ -1074,6 +1558,9 @@
    *  icin patlatmadan bagimsiz, ayri bir mod (VisibilityTool.isolate uzerine kurulu). */
   on('showStorey', function (p) {
     if (!model || !model.storeyElements) return;
+    currentStoreyId = p.id;
+    planPan.x = 0; planPan.z = 0; planZoom = 1;
+    planEdgesDirty = true;
     var ids = model.storeyElements.get(p.id) || [];
     visibility.isolate(ids);
     clearSelection();
@@ -1089,6 +1576,9 @@
     warmup(600);
   });
   on('showAllStoreys', function () {
+    currentStoreyId = null;
+    planPan.x = 0; planPan.z = 0; planZoom = 1;
+    planEdgesDirty = true;
     visibility.isolate(null);
     clearSelection();
     post('selection', null);
@@ -1116,13 +1606,22 @@
     var hideIds = [];
     model._timelineDates.forEach(function (ts, id) { if (ts > p.ts) hideIds.push(id); });
     if (hideIds.length) visibility.hide(hideIds);
+    planEdgesDirty = true;
     warmup(400);
   });
-  on('timelineClear', function () { visibility.showAll(); warmup(400); });
+  on('timelineClear', function () { visibility.showAll(); planEdgesDirty = true; warmup(400); });
 
   on('select', function (p) {
     if (p.id === null || p.id === undefined) { clearSelection(); return; }
     selectElement(p.id, !!p.focus, undefined, undefined, !!p.pulse);
+  });
+
+  on('flyTo', function (p) { flyToPoint(p.x, p.y, p.z); });
+  on('setSplitMode', function (p) {
+    splitMode = !!(p && p.enabled);
+    if (splitMode) { planPan.x = 0; planPan.z = 0; planZoom = 1; planEdgesDirty = true; }
+    computeLayout();
+    needsRender = true;
   });
 
   on('measureMode', function (p) { measure.setMode(p.mode); });

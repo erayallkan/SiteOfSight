@@ -21,6 +21,9 @@ const ViewerCanvas = forwardRef(function ViewerCanvas(props, ref) {
     backgroundColor = '#20232A',
     dark = true,
     cubeLabels,
+    surfaceColor,
+    accentColor,
+    borderColor,
     showFps = false,
     safeBottom = 0,
     onReady,
@@ -116,7 +119,10 @@ const ViewerCanvas = forwardRef(function ViewerCanvas(props, ref) {
 
     switch (type) {
       case 'ready':
-        send('setTheme', { background: backgroundColor, dark, cubeLabels });
+        send('setTheme', {
+          background: backgroundColor, dark, cubeLabels,
+          surface: surfaceColor, accent: accentColor, border: borderColor,
+        });
         send('showHud', { visible: showFps });
         send('layout', { safeBottom });
         onReady?.(payload);
@@ -145,7 +151,8 @@ const ViewerCanvas = forwardRef(function ViewerCanvas(props, ref) {
       case 'log': if (__DEV__) console.log('[viewer]', payload?.message); break;
       default: break;
     }
-  }, [backgroundColor, dark, cubeLabels, showFps, safeBottom, modelUri, send, bootViewer, loadModel,
+  }, [backgroundColor, dark, cubeLabels, surfaceColor, accentColor, borderColor, showFps, safeBottom, modelUri,
+      send, bootViewer, loadModel,
       onReady, onProgress, onLoaded, onSelection, onMeasurement, onMeasureState, onWalkStarted, onFps, onError,
       onThumbnail, onTimelineReady]);
 
@@ -181,6 +188,9 @@ const ViewerCanvas = forwardRef(function ViewerCanvas(props, ref) {
 
     select: (id, focus = false, pulse = false) => send('select', { id, focus, pulse }),
     clearSelection: () => send('select', { id: null }),
+
+    flyTo: (x, y, z) => send('flyTo', { x, y, z }),
+    setSplitMode: (enabled) => send('setSplitMode', { enabled }),
 
     setMeasureMode: (mode) => send('measureMode', { mode }),
     setMeasureUnit: (unit) => send('measureUnit', { unit }),

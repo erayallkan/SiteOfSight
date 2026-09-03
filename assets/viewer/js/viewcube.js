@@ -132,38 +132,45 @@ window.SOS = window.SOS || {};
     this.camera.lookAt(0, 0, 0);
   };
 
-  /** Viewport dikdortgeni: WebGL koordinatinda (y, ekranin ALTINDAN itibaren). */
-  ViewCube.prototype.rect = function (dom) {
-    var x = dom.clientWidth - this.marginRight - this.size;
-    var y = dom.clientHeight - this.marginTop - this.size;
+  /** Kup'un kendi (marginRight/marginTop) yerlesimi - viewRect'in KENDI
+   *  genislik/yuksekligine (w,h) gore yerel bir dikdortgen dondurur. */
+  ViewCube.prototype.rect = function (w, h) {
+    var x = w - this.marginRight - this.size;
+    var y = h - this.marginTop - this.size;
     return { x: x, y: Math.max(y, 0), w: this.size, h: this.size };
   };
 
-  /** Ekranin sag-ust kosesindeki viewport'a ciz. autoClearColor kapatilarak
-   *  arkadaki ana sahne uzerine dogrudan cizilir; dolu bir arkaplan karesi kalmaz. */
-  ViewCube.prototype.render = function (renderer, dom) {
-    var r = this.rect(dom);
+  /** Ekrandaki 3B viewport'un (viewRect: {x,y,w,h}, CSS px, DOM ust-orijin -
+   *  bolunmus ekranda tam pencere degil, sadece 3B'nin gordugu alan olabilir)
+   *  sag-ust kosesine ciz. autoClearColor kapatilarak arkadaki ana sahne
+   *  uzerine dogrudan cizilir; dolu bir arkaplan karesi kalmaz. */
+  ViewCube.prototype.render = function (renderer, viewRect) {
+    var r = this.rect(viewRect.w, viewRect.h);
+    var glX = viewRect.x + r.x;
+    var glY = (window.innerHeight - viewRect.y - viewRect.h) + r.y;
     renderer.setScissorTest(true);
-    renderer.setViewport(r.x, r.y, r.w, r.h);
-    renderer.setScissor(r.x, r.y, r.w, r.h);
+    renderer.setViewport(glX, glY, r.w, r.h);
+    renderer.setScissor(glX, glY, r.w, r.h);
     var prevAutoClearColor = renderer.autoClearColor;
     renderer.autoClearColor = false;
     renderer.clearDepth();
     renderer.render(this.scene, this.camera);
     renderer.autoClearColor = prevAutoClearColor;
     renderer.setScissorTest(false);
-    renderer.setViewport(0, 0, dom.clientWidth, dom.clientHeight);
+    renderer.setViewport(viewRect.x, window.innerHeight - viewRect.y - viewRect.h, viewRect.w, viewRect.h);
   };
 
   /**
    * Dokunma kup alanina denk geliyorsa yon vektorunu dondurur, degilse null.
-   * x,y: CSS pikselinde, sol-ust orijinli.
+   * x,y: CSS pikselinde, sol-ust orijinli. viewRect: cube.render ile ayni
+   * 3B viewport dikdortgeni.
    */
-  ViewCube.prototype.hitTest = function (x, y, dom) {
-    var r = this.rect(dom);
-    var left = r.x, right = r.x + r.w;
-    var bottom = dom.clientHeight - r.y;          // ekran koordinatinda alt sinir
-    var top = bottom - r.h;
+  ViewCube.prototype.hitTest = function (x, y, viewRect) {
+    var r = this.rect(viewRect.w, viewRect.h);
+    var left = viewRect.x + r.x, right = left + r.w;
+    var localBottom = viewRect.h - r.y;            // viewRect'e GORE (ust-orijin) alt sinir
+    var top = viewRect.y + (localBottom - r.h);
+    var bottom = top + r.h;
     if (x < left || x > right || y < top || y > bottom) return null;
 
     var ndc = new THREE.Vector2(
