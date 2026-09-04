@@ -1094,20 +1094,52 @@
     needsRender = true;
   }
 
+  // IFC dosyalarinda (ozellikle Revit disa aktariminda) bir elemanin
+  // IFCRELCONTAINEDINSPATIALSTRUCTURE iliskisi yanlislikla baska bir kata
+  // (ör. bir temel padi "Level 2"ye) atanmis olabilir. Byle bir "aykiri"
+  // eleman kat kutusuna dahil edilirse box.min.y cok asagi cekilir ve buna
+  // bagli hesaplanan kesit/kadraj o katin GERCEK elemanlarini tamamen disarida
+  // birakip plani bombos gosterebilir. Bu yuzden kat kutusu, IFCBUILDINGSTOREY
+  // Elevation degerinden cok asagida kalan elemanlari (toleransla) disler.
+  var STOREY_OUTLIER_TOLERANCE_M = 0.75;
+
+  /** Bir katin elemanlarinin sinir kutusunu, o katin Elevation degerine gore
+   *  aykiri (yanlis atanmis) elemanlari disleyerek hesaplar. Elevation verisi
+   *  yoksa (bazi IFC dosyalarinda olmayabilir) filtre uygulanmaz. */
+  function storeyBoxFromIds(ids, storeyId) {
+    if (!ids || !ids.length) return null;
+    var elev = model.storeyElevations && model.storeyElevations.get(storeyId);
+    var hasElev = typeof elev === 'number' && isFinite(elev);
+    var box = new THREE.Box3();
+    var included = 0;
+    for (var i = 0; i < ids.length; i++) {
+      var b = model.getElementBox(ids[i]);
+      if (!b) continue;
+      if (hasElev && b.min.y < elev - STOREY_OUTLIER_TOLERANCE_M) continue;
+      box.union(b);
+      included++;
+    }
+    if (included && !box.isEmpty()) return box;
+    // Filtre her seyi eledi (Elevation verisi guvenilmez olabilir) - guvenli
+    // tarafta kal, filtresiz kutuya don.
+    if (hasElev) {
+      var raw = new THREE.Box3();
+      for (var j = 0; j < ids.length; j++) {
+        var rb = model.getElementBox(ids[j]);
+        if (rb) raw.union(rb);
+      }
+      if (!raw.isEmpty()) return raw;
+    }
+    return null;
+  }
+
   /** Plan panosunun cerceveleyecegi kutu: bir kat secilmisse (showStorey) o
    *  katin elemanlari, aksi halde tum modelin sinir kutusu. */
   function currentPlanBox() {
     if (!model || model.bbox.isEmpty()) return null;
     if (currentStoreyId != null && model.storeyElements) {
-      var ids = model.storeyElements.get(currentStoreyId);
-      if (ids && ids.length) {
-        var box = new THREE.Box3();
-        for (var i = 0; i < ids.length; i++) {
-          var b = model.getElementBox(ids[i]);
-          if (b) box.union(b);
-        }
-        if (!box.isEmpty()) return box;
-      }
+      var box = storeyBoxFromIds(model.storeyElements.get(currentStoreyId), currentStoreyId);
+      if (box) return box;
     }
     return model.bbox;
   }
@@ -1581,14 +1613,8 @@
     visibility.isolate(ids);
     clearSelection();
     post('selection', null);
-    if (ids.length) {
-      var box = new THREE.Box3();
-      for (var i = 0; i < ids.length; i++) {
-        var b = model.getElementBox(ids[i]);
-        if (b) box.union(b);
-      }
-      if (!box.isEmpty()) fit(1.3, box);
-    }
+    var fitBox = storeyBoxFromIds(ids, p.id);
+    if (fitBox) fit(1.3, fitBox);
     warmup(600);
   });
   on('showAllStoreys', function () {

@@ -31,6 +31,7 @@ window.SOS = window.SOS || {};
     this.storeyOrder = new Map();    // storey expressID -> sira indeksi
     this.storeysInfo = [];           // [{ id, name }], storeys ile ayni sira - kat gecisi UI'si icin
     this.storeyElements = new Map(); // storey expressID -> [eleman expressID, ...] - kat gecisi icin
+    this.storeyElevations = new Map(); // storey expressID -> IFCBUILDINGSTOREY.Elevation (dunya birimi, metre)
     this.tree = null;
     this.stats = { elements: 0, triangles: 0, groups: 0, ms: 0 };
     this.bbox = new THREE.Box3();
@@ -309,6 +310,11 @@ window.SOS = window.SOS || {};
     });
     this.storeyOrder = new Map();
     storeyElevation.forEach(function (s, idx) { self.storeyOrder.set(s.id, idx); });
+    // Elevation, geometriyle ayni ham (mm) birimdedir; world-uzayindaki metre
+    // degerleriyle karsilastirilabilmesi icin ayni _lengthScaleToMm ile bolunur
+    // (bkz. yapicidaki not - web-ifc geometriyi HER ZAMAN metreye normalize eder).
+    this.storeyElevations = new Map();
+    storeyElevation.forEach(function (s) { self.storeyElevations.set(s.id, s.elevation / self._lengthScaleToMm); });
 
     var visited = new Set();
     var nodeCount = 0;
@@ -589,6 +595,7 @@ window.SOS = window.SOS || {};
     this.storeyOrder.clear();
     this.storeysInfo = [];
     this.storeyElements.clear();
+    this.storeyElevations.clear();
     this._propCache.clear();
     if (this.api && this.modelID >= 0) {
       try { this.api.CloseModel(this.modelID); } catch (e) {}
