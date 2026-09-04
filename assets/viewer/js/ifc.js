@@ -37,7 +37,14 @@ window.SOS = window.SOS || {};
     this._psetIndex = null;
     this._materialIndex = null;
     this._propCache = new Map();
-    this._lengthScaleToMm = 1000;   // proje birimi -> mm (varsayilan metre)
+    // dunya birimi -> mm. web-ifc, dosyanin bildirdigi birim ne olursa olsun
+    // (mm, cm, inch...) geometriyi HER ZAMAN metreye normalize ederek dondurur
+    // (dogrulandi: mm birimli bir dosyadaki 2700/3000/6000 gibi ham koordinatlar
+    // THREE.js tarafinda 2.7/3/6 olarak gelir). Bu yuzden sabit 1000'dir; dosyanin
+    // IFCSIUNIT birim/prefix'ini okuyup buna gore degistirmek YANLIS olur - eskiden
+    // boyle yapiliyordu ve mm birimli dosyalarda (ör. Revit disa aktarimlari)
+    // yurume modunda goz yuksekligi 1000 kat buyuyup kullaniciyi havada birakiyordu.
+    this._lengthScaleToMm = 1000;
   }
 
   /* ---------------- WASM baslatma ---------------- */
@@ -101,8 +108,6 @@ window.SOS = window.SOS || {};
       throw new Error('IFC dosyasi acilamadi (gecersiz veya desteklenmeyen surum).');
     }
 
-    this._readUnits();
-
     post('progress', { phase: 'geometry', percent: 20 });
     await yieldFrame();
     await this._buildGeometry();
@@ -114,27 +119,6 @@ window.SOS = window.SOS || {};
     post('progress', { phase: 'done', percent: 100 });
     this.stats.ms = Date.now() - t0;
     return this.stats;
-  };
-
-  IFCModel.prototype._readUnits = function () {
-    try {
-      var projects = this.api.GetLineIDsWithType(this.modelID, WebIFC.IFCPROJECT);
-      if (!projects || projects.size() === 0) return;
-      var project = this.api.GetLine(this.modelID, projects.get(0), true);
-      var units = project.UnitsInContext && project.UnitsInContext.Units;
-      if (!units) return;
-      var prefixes = { MILLI: 1, CENTI: 10, DECI: 100, KILO: 1000000, MICRO: 0.001 };
-      for (var i = 0; i < units.length; i++) {
-        var u = units[i];
-        if (!u || val(u.UnitType) !== 'LENGTHUNIT') continue;
-        var p = val(u.Prefix);
-        var name = val(u.Name);
-        if (name === 'METRE' || name === 'METER') {
-          this._lengthScaleToMm = (p && prefixes[p] !== undefined) ? prefixes[p] : 1000;
-        }
-        break;
-      }
-    } catch (e) { /* birim okunamazsa metre varsay */ }
   };
 
   IFCModel.prototype._buildGeometry = async function () {

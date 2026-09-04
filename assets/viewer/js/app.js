@@ -447,7 +447,11 @@
       var walkHit = pick(x, y);
       if (walkHit) {
         walkPicking = false;
-        enterWalkthroughAtPoint(walkHit.point);
+        // Tiklanan yuzey cati/ust duvar gibi yuksek bir nokta olabilir; asagiya
+        // ikinci bir isinla gercek tabani ara (bkz. planTap ayni mantik icin).
+        var walkDown = pickAlongRay(walkHit.point, new THREE.Vector3(0, -1, 0), walkHit.object, walkHit.instanceId);
+        var walkFloorY = walkDown ? walkDown.point.y : walkHit.point.y;
+        enterWalkthroughAtPoint(new THREE.Vector3(walkHit.point.x, walkFloorY, walkHit.point.z));
         post('walkStarted', {});
       }
       return;
