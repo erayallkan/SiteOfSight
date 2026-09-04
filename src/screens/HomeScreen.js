@@ -2,13 +2,14 @@
    liste-izgara gorunumu, klasorler ve coklu secim ile tasima/silme. */
 import React, { useCallback, useMemo, useState } from 'react';
 import {
-  ActivityIndicator, FlatList, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
+  ActivityIndicator, Alert, FlatList, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { useApp } from '../store/AppContext';
+import { usePurchases } from '../store/PurchaseContext';
 import { EmptyState, Segmented } from '../components/ui';
 import {
   createFolder, deleteFolder, deleteModel, deleteModels, listFolders, listModels,
@@ -144,6 +145,7 @@ function FolderPickerModal({ visible, folders, onClose, onCreateAndMove, onMoveT
 
 export default function HomeScreen({ navigation }) {
   const { colors, t, settings, language } = useApp();
+  const { isPro } = usePurchases();
   const [models, setModels] = useState([]);
   const [folders, setFolders] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -166,6 +168,10 @@ export default function HomeScreen({ navigation }) {
   useFocusEffect(useCallback(() => { refresh(); }, [refresh]));
 
   const openModel = useCallback(async (record) => {
+    if (record.source !== 'sample' && !isPro) {
+      navigation.navigate('Paywall');
+      return;
+    }
     const exists = await fileExists(record.file_uri);
     if (!exists) {
       Alert.alert(t('common.error'), t('errors.unreadable'));
@@ -174,7 +180,7 @@ export default function HomeScreen({ navigation }) {
       return;
     }
     navigation.navigate('Viewer', { model: record });
-  }, [navigation, refresh, t]);
+  }, [isPro, navigation, refresh, t]);
 
   const openSample = useCallback(async () => {
     setBusy(true);
@@ -198,6 +204,10 @@ export default function HomeScreen({ navigation }) {
   }, [language, navigation, refresh, t]);
 
   const pickFile = useCallback(async () => {
+    if (!isPro) {
+      navigation.navigate('Paywall');
+      return;
+    }
     setBusy(true);
     try {
       const file = await pickIfcFile();
@@ -212,7 +222,7 @@ export default function HomeScreen({ navigation }) {
     } finally {
       setBusy(false);
     }
-  }, [navigation, refresh, t]);
+  }, [isPro, navigation, refresh, t]);
 
   const confirmDelete = useCallback((record) => {
     Alert.alert(t('home.deleteConfirm'), record.name, [

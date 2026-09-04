@@ -8,10 +8,14 @@ import {
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import { AppProvider, useApp } from './src/store/AppContext';
+import { PurchaseProvider, usePurchases } from './src/store/PurchaseContext';
 import OnboardingScreen from './src/screens/OnboardingScreen';
 import HomeScreen from './src/screens/HomeScreen';
 import ViewerScreen from './src/screens/ViewerScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
+import PaywallScreen from './src/screens/PaywallScreen';
+import LegalScreen from './src/screens/LegalScreen';
+import FeedbackScreen from './src/screens/FeedbackScreen';
 import { upsertModel, getModel } from './src/db/database';
 import { ModelFileError, importSharedIfcFile } from './src/services/modelFiles';
 
@@ -22,11 +26,15 @@ const navigationRef = createNavigationContainerRef();
  *  (uygulama scheme'i degil, dogrudan bir dosya URI'si) modeller gecmisine
  *  ekleyip goruntuleyiciye acar - bkz. app.json ios.infoPlist.CFBundleDocumentTypes
  *  ve android.intentFilters. */
-async function handleIncomingFileUrl(url, maxSizeMb, t) {
+async function handleIncomingFileUrl(url, maxSizeMb, t, isPro) {
   // Sadece gercek dosya URI'lerini isle (content:// / file://); uygulamanin
   // kendi baslatma linkini (siteofsight:// veya Expo Go'nun exp://) yoksay -
   // yoksa her normal acilista "IFC degil" hatasi gosterilir.
   if (!url || !/^(content|file):/i.test(url)) return;
+  if (!isPro) {
+    if (navigationRef.isReady()) navigationRef.navigate('Paywall');
+    return;
+  }
   try {
     const file = await importSharedIfcFile(url, maxSizeMb);
     const id = await upsertModel({ name: file.name, fileUri: file.uri, sizeBytes: file.size, source: 'device' });
@@ -40,13 +48,14 @@ async function handleIncomingFileUrl(url, maxSizeMb, t) {
 
 function Root() {
   const { colors, settings, hydrated, t } = useApp();
+  const { isPro } = usePurchases();
 
   useEffect(() => {
     if (!hydrated) return undefined;
-    Linking.getInitialURL().then((url) => { if (url) handleIncomingFileUrl(url, settings.maxFileSizeMb, t); });
-    const sub = Linking.addEventListener('url', ({ url }) => handleIncomingFileUrl(url, settings.maxFileSizeMb, t));
+    Linking.getInitialURL().then((url) => { if (url) handleIncomingFileUrl(url, settings.maxFileSizeMb, t, isPro); });
+    const sub = Linking.addEventListener('url', ({ url }) => handleIncomingFileUrl(url, settings.maxFileSizeMb, t, isPro));
     return () => sub.remove();
-  }, [hydrated, settings.maxFileSizeMb, t]);
+  }, [hydrated, settings.maxFileSizeMb, t, isPro]);
 
   if (!hydrated) {
     return (
@@ -79,6 +88,9 @@ function Root() {
         <Stack.Screen name="Home" component={HomeScreen} />
         <Stack.Screen name="Viewer" component={ViewerScreen} options={{ animation: 'fade' }} />
         <Stack.Screen name="Settings" component={SettingsScreen} options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="Paywall" component={PaywallScreen} options={{ animation: 'slide_from_bottom', gestureEnabled: true }} />
+        <Stack.Screen name="Legal" component={LegalScreen} options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="Feedback" component={FeedbackScreen} options={{ animation: 'slide_from_right' }} />
       </Stack.Navigator>
     </NavigationContainer>
   );
@@ -88,7 +100,9 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <AppProvider>
-        <Root />
+        <PurchaseProvider>
+          <Root />
+        </PurchaseProvider>
       </AppProvider>
     </SafeAreaProvider>
   );

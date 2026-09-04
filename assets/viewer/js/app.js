@@ -31,6 +31,9 @@
   var WALK_MOVE_MPS = 1.4;   // insan yuruyus hizi (m/s)
   var WALK_LOOK_RATE = 2.2;  // tam kuvvette radyan/s
   var walkPicking = false;   // true iken bir sonraki dokunma yurume baslangic noktasidir
+  var walkArmedAt = 0;       // walkPicking'in true oldugu an (ms) - armadan ONCE baslamis
+                              // (parmak zaten ekrandayken yurume butonuna basilmasi gibi) bir
+                              // dokunusun kalinti "tap"ini yurume baslangici saymamak icin
   var WALK_FOV_WIDE = 90;    // yurume modunda her zaman kullanilan genis-aci FOV
   var WALK_GROUND_PROBE_UP_M = 0.45;  // ayaklarin bu kadar ustunden taranmaya baslar (m) - normal basamagi kapsar, tavana degmez
   var WALK_GROUND_PROBE_DOWN_M = 1.2; // oradan asagi bu mesafeye kadar taranir (m) - bundan buyuk kot farklari "bosluk" sayilip dusmeye birakilir
@@ -436,6 +439,11 @@
       return;
     }
     if (walkPicking) {
+      // Yurume mod'u silahlandirilmadan ONCE baslamis bir dokunusun (parmak
+      // zaten ekrandayken yurume butonuna basilmasi gibi) kalinti "tap"ini
+      // yok say - yoksa yurume, kullanicinin hic dokunmadigi rastgele bir
+      // noktada baslar.
+      if (controls._downTime < walkArmedAt) return;
       var walkHit = pick(x, y);
       if (walkHit) {
         walkPicking = false;
@@ -641,9 +649,9 @@
 
     controls.target.copy(center);
     controls.spherical.radius = dist;
-    controls.minDistance = radius * 0.002;
+    controls.minDistance = radius * 0.0003;
     controls.maxDistance = radius * 60;
-    perspCamera.near = Math.max(radius * 0.001, 0.01);
+    perspCamera.near = Math.max(radius * 0.0001, 0.003);
     perspCamera.far = radius * 200;
     perspCamera.updateProjectionMatrix();
     orthoCamera.near = -radius * 200;
@@ -1247,9 +1255,13 @@
    *  gecilir ve kullanici o noktada "yerde durur" halde baslar (dalux tarzi
    *  "plandan 3B'ye isinlanma"). Eleman SECILMEZ. Ustten bakan isinin Y'si
    *  CATI/TAVAN gibi bir ust yuzey olabileceginden (kus bakisi ilk isabet),
-   *  yurume baslangic yuksekligi icin gercek taban kotu yerine o an
-   *  gosterilen katin (ya da tum bina seciliyse binanin) ALT sinirindan
-   *  alinir - enterWalkthroughAtPoint zaten buna goz yuksekligi ekler. */
+   *  o noktadan asagiya IKINCI bir isin atilarak gercek TABAN yuzeyi aranir.
+   *  ONCEDEN "tum katlar" gorunumunde binanin EN ALT (Y) noktasi kullaniliyordu;
+   *  bu, ust kat planinda tiklandiginda yurumeyi gercek zeminin kat sayisi
+   *  kadar altinda baslatip (yer-takip probu bu kadar buyuk bir farki
+   *  kapsamadigindan) oyuncunun boslukta/havada asili kalmasina yol aciyordu -
+   *  asagi dogru isin, tiklanan (x,z) altindaki GERCEK tabani (hangi kat
+   *  olursa olsun) bulur. */
   function planTap(clientX, clientY) {
     if (!model || planRect.w < 10) return;
     var ndc = new THREE.Vector2(
@@ -1260,8 +1272,8 @@
     var hit = resolveHit(raycaster.intersectObjects(visibleMeshes(), false));
     if (!hit) return;
 
-    var box = currentPlanBox();
-    var floorY = box ? box.min.y : hit.point.y;
+    var down = pickAlongRay(hit.point, new THREE.Vector3(0, -1, 0), hit.object, hit.instanceId);
+    var floorY = down ? down.point.y : hit.point.y;
     walkPicking = false;
     enterWalkthroughAtPoint(new THREE.Vector3(hit.point.x, floorY, hit.point.z));
     post('walkStarted', {});
@@ -1630,7 +1642,7 @@
   on('measureRedo', function () { measure.redo(); });
   on('measureClear', function () { measure.clear(); });
 
-  on('walkArmPick', function () { walkPicking = true; needsRender = true; });
+  on('walkArmPick', function () { walkPicking = true; walkArmedAt = Date.now(); needsRender = true; });
   on('walkCancelPick', function () { walkPicking = false; });
   on('walkExit', function () { walkPicking = false; exitWalkthrough(); });
   on('walkMove', function (p) {

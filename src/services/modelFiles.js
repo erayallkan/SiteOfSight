@@ -3,10 +3,10 @@
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 
-import { sampleIfcUri } from './assets';
+import { sampleIfcUri, sampleIfcHash } from './assets';
 
 export const MODELS_DIR = `${FileSystem.documentDirectory}models/`;
-export const MAX_FILE_SIZE_MB = 750;
+export const MAX_FILE_SIZE_MB = 1024;
 
 export class ModelFileError extends Error {
   constructor(code, params) {
@@ -137,16 +137,30 @@ export async function importSharedIfcFile(sourceUri, maxSizeMb = MAX_FILE_SIZE_M
   return importFromUri(sourceUri, guessedName, 0, maxSizeMb);
 }
 
-/** Paketlenmis ornek modeli models/ altina kopyalar (bir kez). */
+/** Paketlenmis ornek modeli models/ altina kopyalar - onceden "bir kez"
+ *  kopyalaniyordu, bu da gelistirici paketlenmis ornegi (assets/sample/
+ *  ornek-model.ifc) degistirip yeniden derledikten sonra bile cihazda hep
+ *  ESKI kopyanin acilmasina yol aciyordu (hedef dosya zaten var diye
+ *  atlaniyordu). Simdi paketlenmis dosyanin icerik hash'i bir yanindaki
+ *  .hash dosyasinda tutulur; hash degismisse (veya hic yoksa) hedef yeniden
+ *  kopyalanir. */
 export async function prepareSampleModel() {
   await ensureDir();
   const target = `${MODELS_DIR}ornek-model.ifc`;
+  const hashFile = `${MODELS_DIR}ornek-model.hash`;
+  const hash = await sampleIfcHash();
+
   const info = await FileSystem.getInfoAsync(target, { size: true });
-  if (info.exists && info.size > 0) {
-    return { name: 'ornek-model.ifc', uri: target, size: info.size, source: 'sample' };
+  let cachedHash = null;
+  if (info.exists) {
+    try { cachedHash = (await FileSystem.readAsStringAsync(hashFile)).trim(); } catch (e) { cachedHash = null; }
   }
-  const source = await sampleIfcUri();
-  await FileSystem.copyAsync({ from: source, to: target });
+  const upToDate = info.exists && info.size > 0 && hash && cachedHash === hash;
+  if (!upToDate) {
+    const source = await sampleIfcUri();
+    await FileSystem.copyAsync({ from: source, to: target });
+    if (hash) await FileSystem.writeAsStringAsync(hashFile, hash);
+  }
   const copied = await FileSystem.getInfoAsync(target, { size: true });
   return { name: 'ornek-model.ifc', uri: target, size: copied.size || 0, source: 'sample' };
 }

@@ -31,3 +31,13 @@ export function webIfcWasmUri() {
 export function sampleIfcUri() {
   return localUriOf(SAMPLE_IFC, 'sample');
 }
+
+/** Paketlenmis ornek IFC'nin icerik hash'i - modelFiles.prepareSampleModel
+ *  bunu, cihaza daha once kopyalanmis ornegin GUNCEL mi (ör. gelistirici
+ *  ornek dosyayi degistirip yeniden paketledi mi) yoksa ESKI mi oldugunu
+ *  anlamak icin kullanir. */
+export async function sampleIfcHash() {
+  const asset = Asset.fromModule(SAMPLE_IFC);
+  if (!asset.localUri) await asset.downloadAsync();
+  return asset.hash || null;
+}

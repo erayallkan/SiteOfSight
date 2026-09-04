@@ -6,12 +6,14 @@ import { Ionicons } from '@expo/vector-icons';
 import * as FileSystem from 'expo-file-system/legacy';
 
 import { useApp } from '../store/AppContext';
+import { usePurchases } from '../store/PurchaseContext';
 import { LANGUAGES } from '../i18n';
 import { ScrollArea, SectionTitle, Segmented, SwitchRow, Row } from '../components/ui';
 import { MAX_FILE_SIZE_MB, MODELS_DIR, formatSize } from '../services/modelFiles';
 
 export default function SettingsScreen({ navigation }) {
   const { colors, t, settings, update } = useApp();
+  const { isPro, setMockPro } = usePurchases();
   const [usage, setUsage] = useState(0);
 
   const measureStorage = useCallback(async () => {
@@ -56,6 +58,20 @@ export default function SettingsScreen({ navigation }) {
       </View>
 
       <ScrollArea>
+        <SectionTitle>{t('settings.subscription')}</SectionTitle>
+        <Row
+          label={t('settings.managePlan')}
+          value={isPro ? t('settings.planActive') : t('settings.planFree')}
+          icon="trending-up-outline"
+          onPress={() => navigation.navigate('Paywall')}
+        />
+        <SwitchRow
+          label={t('settings.devMockUpgrade')}
+          value={isPro}
+          onValueChange={setMockPro}
+          icon="construct-outline"
+        />
+
         <SectionTitle>{t('settings.theme')}</SectionTitle>
         <View style={styles.block}>
           <Segmented
@@ -103,6 +119,23 @@ export default function SettingsScreen({ navigation }) {
         <SectionTitle>{t('settings.about')}</SectionTitle>
         <Row label={t('settings.version')} value="1.0.0" icon="information-circle-outline" />
         <Row label={t('settings.privacy')} icon="lock-closed-outline" />
+        <Row
+          label={t('settings.privacyPolicy')}
+          icon="shield-checkmark-outline"
+          onPress={() => navigation.navigate('Legal', { doc: 'privacy' })}
+        />
+        <Row
+          label={t('settings.termsOfUse')}
+          icon="document-text-outline"
+          onPress={() => navigation.navigate('Legal', { doc: 'terms' })}
+        />
+
+        <SectionTitle>{t('settings.feedback')}</SectionTitle>
+        <Row
+          label={t('settings.sendFeedback')}
+          icon="chatbubble-ellipses-outline"
+          onPress={() => navigation.navigate('Feedback')}
+        />
       </ScrollArea>
     </SafeAreaView>
   );

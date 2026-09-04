@@ -433,53 +433,67 @@ window.SOS = window.SOS || {};
 
   /** Vurulan noktadan uc olcum cizgisi cikarir - "o yuzeyin X/Y/Z olculeri":
    *  - yuzeyin DUZLEMINDEKI iki eksende, dokunulan ELEMANIN KENDI kutusunun
-   *    en yakin kenarina olan mesafe (ör. dosemenin iki kenar olcusu),
+   *    bir kenarindan karsi kenarina UCTAN UCA mesafe (ör. dosemenin iki
+   *    kenar olcusu, tek deger olarak),
    *  - yuzeyin NORMALI boyunca disariya atilan bir isinla sahnedeki bir
    *    SONRAKI yuzeye kadar olan mesafe (ör. dosemeden tavana yukseklik).
    *  Ucu de tek bir item'da toplanir (undo/redo/silme birlikte calisir). */
   MeasureTool.prototype._commitLaser = function (hit) {
-    var model = this.env.model;
-    var box = (model && hit.expressID != null) ? model.getElementBox(hit.expressID) : null;
-    if (!box) return;
+    if (!hit.object || !hit.object.geometry || !hit.object.geometry.boundingBox) return;
+
+    // Dokunulan mesh'in KENDI (yerel, donmemis) uzayindaki kutusu kullanilir -
+    // dunya uzayindaki eksene-hizali kutu (Box3) donuk/egik elemanlarda
+    // yuzeyin gercek kenarlarini temsil etmez, bu da cizgilerin yuzeye gore
+    // çapraz gorunmesine yol acardi. Instance/world matrisiyle donusum,
+    // hesabin SONUNDA uygulanir; boylece cizgiler elemanin kendi eksenleriyle
+    // (donmus olsa da) hizali kalir.
+    var m = new THREE.Matrix4();
+    if (hit.object.isInstancedMesh && hit.instanceId !== undefined && hit.instanceId !== null) {
+      hit.object.getMatrixAt(hit.instanceId, m);
+      m.premultiply(hit.object.matrixWorld);
+    } else {
+      m.copy(hit.object.matrixWorld);
+    }
+    var mInv = new THREE.Matrix4().copy(m).invert();
 
     var origin = hit.point.clone();
+    var localOrigin = origin.clone().applyMatrix4(mInv);
 
-    var normal = new THREE.Vector3(0, 1, 0);
-    if (hit.face) {
-      var m = new THREE.Matrix4();
-      if (hit.object.isInstancedMesh && hit.instanceId !== undefined && hit.instanceId !== null) {
-        hit.object.getMatrixAt(hit.instanceId, m);
-        m.premultiply(hit.object.matrixWorld);
-      } else {
-        m.copy(hit.object.matrixWorld);
-      }
-      normal.copy(hit.face.normal).transformDirection(m).normalize();
-    }
+    var localNormal = hit.face ? hit.face.normal.clone() : new THREE.Vector3(0, 1, 0);
+    var worldNormal = localNormal.clone().transformDirection(m).normalize();
 
     // Normale en yakin (baskin) eksen disinda kalan iki eksen, yuzeyin
     // duzlemini olusturur - kenar cizgileri bu iki eksende cizilir.
-    var ax = Math.abs(normal.x), ay = Math.abs(normal.y), az = Math.abs(normal.z);
+    var ax = Math.abs(localNormal.x), ay = Math.abs(localNormal.y), az = Math.abs(localNormal.z);
     var dominant = (ax >= ay && ax >= az) ? 'x' : (ay >= az ? 'y' : 'z');
     var inPlane = ['x', 'y', 'z'].filter(function (a) { return a !== dominant; });
 
+    var box = hit.object.geometry.boundingBox;
     var self = this;
     var scale = this.env.model._lengthScaleToMm;
     var EPS = 1e-6;
     var segments = [];
 
+    // Her yuzey-ici eksende, elemanin kutusunun bir kenarindan karsi
+    // kenarina kadar UCTAN UCA tek bir mesafe cizilir (origin sadece bu
+    // cizginin uzerinde bir noktadir, ayri ayri iki yariya bolunmez).
     inPlane.forEach(function (axis) {
-      var toMin = origin[axis] - box.min[axis];
-      var toMax = box.max[axis] - origin[axis];
-      var useMin = toMin <= toMax;
-      var dist = useMin ? toMin : toMax;
-      if (dist < EPS) return; // zaten bu kenarin ustunde
-      var target = origin.clone();
-      target[axis] = useMin ? box.min[axis] : box.max[axis];
-      var mm = dist * scale;
-      segments.push({ axis: axis, points: [origin, target], value: mm, text: SOS.util.formatLength(mm, self.unit) });
+      var toMin = localOrigin[axis] - box.min[axis];
+      var toMax = box.max[axis] - localOrigin[axis];
+      var total = toMin + toMax;
+      if (total < EPS) return;
+      var minLocal = localOrigin.clone(); minLocal[axis] = box.min[axis];
+      var maxLocal = localOrigin.clone(); maxLocal[axis] = box.max[axis];
+      var minWorld = minLocal.applyMatrix4(m);
+      var maxWorld = maxLocal.applyMatrix4(m);
+      var mm = minWorld.distanceTo(maxWorld) * scale;
+      segments.push({
+        axis: axis, spansEdge: true, points: [minWorld, maxWorld],
+        value: mm, text: SOS.util.formatLength(mm, self.unit)
+      });
     });
 
-    var normalHit = this.env.pickAlongRay(origin, normal, hit.object, hit.instanceId);
+    var normalHit = this.env.pickAlongRay(origin, worldNormal, hit.object, hit.instanceId);
     if (normalHit) {
       var dist2 = origin.distanceTo(normalHit.point);
       if (dist2 >= EPS) {
@@ -549,8 +563,10 @@ window.SOS = window.SOS || {};
       self.group.add(line);
       item.objects.push(line);
 
-      // Lazer'de ortak baslangic noktasi yukarda zaten isaretlendi.
-      var dotStart = item.segments ? 1 : 0;
+      // Lazer'de yukseklik segmenti origin'i paylasir (yukarda zaten
+      // isaretlendi); kenardan-kenara (spansEdge) segmentlerde iki uc da
+      // origin degildir, ikisine de nokta konur.
+      var dotStart = (item.segments && !seg.spansEdge) ? 1 : 0;
       for (var i = dotStart; i < seg.points.length; i++) {
         var dot = new THREE.Mesh(sphereGeo, new THREE.MeshBasicMaterial({ color: segColor, depthTest: false }));
         dot.position.copy(seg.points[i]);
@@ -565,7 +581,7 @@ window.SOS = window.SOS || {};
       if (item.kind === 'laser' && AXIS_LABEL_BG[seg.axis]) el.style.background = AXIS_LABEL_BG[seg.axis];
       el.textContent = seg.text;
       self.overlay.appendChild(el);
-      labelEntries.push({ el: el, points: seg.points });
+      labelEntries.push({ el: el, points: seg.points, mid: seg.spansEdge });
     });
 
     this._labels.set(item.id, labelEntries);
@@ -591,6 +607,8 @@ window.SOS = window.SOS || {};
         var pts = entry.points;
         var mid;
         if (item.kind === 'angle') mid = pts[1].clone();
+        // "Toplam" etiketi iki kenar noktasi arasindaki tam ortada durur.
+        else if (entry.mid) mid = pts[0].clone().add(pts[1]).multiplyScalar(0.5);
         // Lazer'de pts[0] ortak baslangic noktasi - etiket tam ortada degil,
         // hedef kenara yakin konumlandirilir (ortadaki nokta baslangica cok
         // yakinsa iki segmentin etiketleri ustuste binebilir).
