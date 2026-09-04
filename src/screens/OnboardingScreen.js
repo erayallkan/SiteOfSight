@@ -6,7 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 import { useApp } from '../store/AppContext';
 
-const ICONS = ['cube-outline', 'git-branch-outline', 'resize-outline', 'lock-closed-outline'];
+const ICONS = ['cube-outline', 'git-branch-outline', 'resize-outline', 'walk-outline', 'lock-closed-outline'];
 
 export default function OnboardingScreen({ navigation }) {
   const { colors, t, update } = useApp();
@@ -17,7 +17,8 @@ export default function OnboardingScreen({ navigation }) {
 
   const finish = () => {
     update({ onboardingDone: true });
-    navigation.replace('Home');
+    if (navigation.canGoBack()) navigation.goBack();
+    else navigation.replace('Home');
   };
 
   const next = () => {

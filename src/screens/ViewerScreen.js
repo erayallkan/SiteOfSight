@@ -19,6 +19,16 @@ import FloorNav from '../components/FloorNav';
 import TimelineSheet from '../components/TimelineSheet';
 import { addMeasurement, setModelStats, setModelThumbnail, touchModel } from '../db/database';
 
+const CUBE_LABELS = {
+  tr: { right: 'SAĞ', left: 'SOL', top: 'ÜST', bottom: 'ALT', front: 'ÖN', back: 'ARKA' },
+  en: { right: 'RIGHT', left: 'LEFT', top: 'TOP', bottom: 'BOTTOM', front: 'FRONT', back: 'BACK' },
+  de: { right: 'RECHTS', left: 'LINKS', top: 'OBEN', bottom: 'UNTEN', front: 'VORNE', back: 'HINTEN' },
+  ar: { right: 'يمين', left: 'يسار', top: 'أعلى', bottom: 'أسفل', front: 'أمام', back: 'خلف' },
+  ru: { right: 'ПРАВО', left: 'ЛЕВО', top: 'ВЕРХ', bottom: 'НИЗ', front: 'ПЕРЕД', back: 'ЗАД' },
+  es: { right: 'DERECHA', left: 'IZQUIERDA', top: 'ARRIBA', bottom: 'ABAJO', front: 'FRENTE', back: 'ATRÁS' },
+  fr: { right: 'DROITE', left: 'GAUCHE', top: 'HAUT', bottom: 'BAS', front: 'AVANT', back: 'ARRIÈRE' },
+};
+
 const ERROR_MESSAGES = {
   IFC_LOAD_FAILED: 'errors.parseFailed',
   WASM_INIT_FAILED: 'errors.parseFailed',
@@ -72,15 +82,10 @@ export default function ViewerScreen({ route, navigation }) {
 
   useEffect(() => { touchModel(model.id).catch(() => {}); }, [model.id]);
 
-  const cubeLabels = useMemo(() => {
-    if (settings.language === 'de') {
-      return { right: 'RECHTS', left: 'LINKS', top: 'OBEN', bottom: 'UNTEN', front: 'VORNE', back: 'HINTEN' };
-    }
-    if (settings.language === 'en') {
-      return { right: 'RIGHT', left: 'LEFT', top: 'TOP', bottom: 'BOTTOM', front: 'FRONT', back: 'BACK' };
-    }
-    return { right: 'SAĞ', left: 'SOL', top: 'ÜST', bottom: 'ALT', front: 'ÖN', back: 'ARKA' };
-  }, [settings.language]);
+  const cubeLabels = useMemo(
+    () => CUBE_LABELS[settings.language] || CUBE_LABELS.tr,
+    [settings.language]
+  );
 
   /* ---------------- Viewer olaylari ---------------- */
 

@@ -25,9 +25,13 @@ const LOGO_ASPECT = 1533 / 430; // logo-light.png / logo-dark.png genislik-yukse
 const LOGO_HEIGHT = 34;
 
 const TIME_AGO = {
-  tr: { now: 'az once', min: (n) => `${n} dk once`, hour: (n) => `${n} sa once`, day: (n) => `${n} gun once` },
+  tr: { now: 'az önce', min: (n) => `${n} dk önce`, hour: (n) => `${n} sa önce`, day: (n) => `${n} gün önce` },
   en: { now: 'just now', min: (n) => `${n} min ago`, hour: (n) => `${n} h ago`, day: (n) => `${n} d ago` },
   de: { now: 'gerade eben', min: (n) => `vor ${n} Min.`, hour: (n) => `vor ${n} Std.`, day: (n) => `vor ${n} Tg.` },
+  ar: { now: 'الآن', min: (n) => `منذ ${n} د`, hour: (n) => `منذ ${n} س`, day: (n) => `منذ ${n} ي` },
+  ru: { now: 'только что', min: (n) => `${n} мин назад`, hour: (n) => `${n} ч назад`, day: (n) => `${n} дн назад` },
+  es: { now: 'ahora mismo', min: (n) => `hace ${n} min`, hour: (n) => `hace ${n} h`, day: (n) => `hace ${n} d` },
+  fr: { now: 'à l\'instant', min: (n) => `il y a ${n} min`, hour: (n) => `il y a ${n} h`, day: (n) => `il y a ${n} j` },
 };
 
 function timeAgo(ts, language) {

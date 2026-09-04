@@ -8,13 +8,15 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { useApp } from '../store/AppContext';
 import { usePurchases } from '../store/PurchaseContext';
 import { LANGUAGES } from '../i18n';
-import { ScrollArea, SectionTitle, Segmented, SwitchRow, Row } from '../components/ui';
+import { BottomSheet, ScrollArea, SectionTitle, Segmented, SwitchRow, Row } from '../components/ui';
 import { MAX_FILE_SIZE_MB, MODELS_DIR, formatSize } from '../services/modelFiles';
 
 export default function SettingsScreen({ navigation }) {
-  const { colors, t, settings, update } = useApp();
+  const { colors, t, settings, update, rtlRestartNeeded, clearRtlRestartNeeded } = useApp();
   const { isPro, setMockPro } = usePurchases();
   const [usage, setUsage] = useState(0);
+  const [langPickerOpen, setLangPickerOpen] = useState(false);
+  const currentLang = LANGUAGES.find((l) => l.key === (settings.language || 'tr')) || LANGUAGES[0];
 
   const measureStorage = useCallback(async () => {
     try {
@@ -33,6 +35,13 @@ export default function SettingsScreen({ navigation }) {
   }, []);
 
   useEffect(() => { measureStorage(); }, [measureStorage]);
+
+  useEffect(() => {
+    if (!rtlRestartNeeded) return;
+    Alert.alert(t('settings.rtlRestartTitle'), t('settings.rtlRestartBody'), [
+      { text: t('common.ok'), onPress: clearRtlRestartNeeded },
+    ]);
+  }, [rtlRestartNeeded, t, clearRtlRestartNeeded]);
 
   const clearCache = () => {
     Alert.alert(t('settings.clearCache'), t('home.deleteConfirm'), [
@@ -86,13 +95,12 @@ export default function SettingsScreen({ navigation }) {
         </View>
 
         <SectionTitle>{t('settings.language')}</SectionTitle>
-        <View style={styles.block}>
-          <Segmented
-            value={settings.language || 'tr'}
-            onChange={(key) => update({ language: key })}
-            options={LANGUAGES.map((l) => ({ key: l.key, label: l.label }))}
-          />
-        </View>
+        <Row
+          label={t('settings.language')}
+          value={`${currentLang.flag}  ${currentLang.label}`}
+          icon="language-outline"
+          onPress={() => setLangPickerOpen(true)}
+        />
 
         <SectionTitle>{t('settings.unit')}</SectionTitle>
         <View style={styles.block}>
@@ -117,6 +125,11 @@ export default function SettingsScreen({ navigation }) {
         <Row label={t('settings.clearCache')} icon="trash-outline" onPress={clearCache} />
 
         <SectionTitle>{t('settings.about')}</SectionTitle>
+        <Row
+          label={t('settings.replayOnboarding')}
+          icon="play-circle-outline"
+          onPress={() => navigation.navigate('Onboarding')}
+        />
         <Row label={t('settings.version')} value="1.0.0" icon="information-circle-outline" />
         <Row label={t('settings.privacy')} icon="lock-closed-outline" />
         <Row
@@ -137,6 +150,30 @@ export default function SettingsScreen({ navigation }) {
           onPress={() => navigation.navigate('Feedback')}
         />
       </ScrollArea>
+
+      <BottomSheet
+        visible={langPickerOpen}
+        onClose={() => setLangPickerOpen(false)}
+        title={t('settings.language')}
+        heightRatio={0.52}
+      >
+        <ScrollArea>
+          {LANGUAGES.map((l) => {
+            const active = l.key === (settings.language || 'tr');
+            return (
+              <Pressable
+                key={l.key}
+                onPress={() => { update({ language: l.key }); setLangPickerOpen(false); }}
+                style={[styles.langRow, { borderBottomColor: colors.border }]}
+              >
+                <Text style={styles.langFlag}>{l.flag}</Text>
+                <Text style={[styles.langLabel, { color: colors.text }]}>{l.label}</Text>
+                {active ? <Ionicons name="checkmark" size={20} color={colors.accent} /> : null}
+              </Pressable>
+            );
+          })}
+        </ScrollArea>
+      </BottomSheet>
     </SafeAreaView>
   );
 }
@@ -147,4 +184,10 @@ const styles = StyleSheet.create({
   back: { padding: 4 },
   title: { fontSize: 22, fontWeight: '800' },
   block: { paddingHorizontal: 16 },
+  langRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    paddingVertical: 14, paddingHorizontal: 16, borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  langFlag: { fontSize: 22 },
+  langLabel: { flex: 1, fontSize: 15.5 },
 });

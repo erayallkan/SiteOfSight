@@ -67,6 +67,8 @@ export default function PaywallScreen({ navigation }) {
             label={t('paywall.yearly')}
             price={t('paywall.yearlyPrice')}
             originalPrice={t('paywall.yearlyOriginalPrice')}
+            perMonth={t('paywall.yearlyPerMonth')}
+            savings={t('paywall.yearlySavings')}
             badge={t('paywall.yearlyBadge')}
             onPress={() => setPlan('yearly')}
             colors={colors}
@@ -96,7 +98,7 @@ export default function PaywallScreen({ navigation }) {
   );
 }
 
-function PlanCard({ active, label, price, originalPrice, badge, onPress, colors }) {
+function PlanCard({ active, label, price, originalPrice, perMonth, savings, badge, onPress, colors }) {
   return (
     <Pressable
       onPress={onPress}
@@ -120,6 +122,12 @@ function PlanCard({ active, label, price, originalPrice, badge, onPress, colors 
           <Text style={[styles.planOriginalPrice, { color: colors.textFaint }]}>{originalPrice}</Text>
         ) : null}
       </View>
+      {perMonth ? (
+        <Text style={[styles.planPerMonth, { color: colors.accent }]}>{perMonth}</Text>
+      ) : null}
+      {savings ? (
+        <Text style={[styles.planSavings, { color: colors.success }]}>{savings}</Text>
+      ) : null}
     </Pressable>
   );
 }
@@ -157,6 +165,8 @@ const styles = StyleSheet.create({
   priceRow: { flexDirection: 'row', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' },
   planPrice: { fontSize: 13 },
   planOriginalPrice: { fontSize: 12, textDecorationLine: 'line-through' },
+  planPerMonth: { fontSize: 11.5, fontWeight: '700', marginTop: 2 },
+  planSavings: { fontSize: 11, fontWeight: '600', marginTop: 1 },
 
   subscribeBtn: { paddingVertical: 16, borderRadius: 16, alignItems: 'center', marginBottom: 12 },
   subscribeText: { color: '#fff', fontSize: 16, fontWeight: '700' },
