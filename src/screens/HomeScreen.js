@@ -464,7 +464,7 @@ export default function HomeScreen({ navigation }) {
           />
         </View>
         {selectMode ? (
-          <Pressable onPress={exitSelectMode} style={[styles.iconBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} hitSlop={8}>
+          <Pressable onPress={exitSelectMode} style={[styles.iconBtn, styles.cancelBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} hitSlop={8}>
             <Text style={{ color: colors.accent, fontWeight: '700', fontSize: 13 }}>{t('common.cancel')}</Text>
           </Pressable>
         ) : (
@@ -567,6 +567,9 @@ const styles = StyleSheet.create({
   iconBtn: {
     width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center',
     borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 10,
+  },
+  cancelBtn: {
+    width: undefined, minWidth: 42, paddingHorizontal: 16,
   },
   actions: { paddingHorizontal: 16, gap: 10 },
   primary: {

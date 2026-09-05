@@ -25,12 +25,15 @@
     lookTarget: new THREE.Vector3(),
     yaw: 0, pitch: 0,
     moveX: 0, moveY: 0, lookX: 0, lookY: 0,
-    speed: 3,                // hiz carpani (walkSpeed komutuyla degisir), varsayilan 3x
+    speed: 3,                // hiz carpani - sabit 3x
     vy: 0,                   // dusey hiz (m/s, asagi yonlu pozitif) - yercekimi/dusme icin
     falling: false
   };
   var WALK_MOVE_MPS = 1.4;   // insan yuruyus hizi (m/s)
   var WALK_LOOK_RATE = 2.2;  // tam kuvvette radyan/s
+  var walkTapDown = null;    // {x,y,t,moved,id} - yurume modunda (controls.enabled=false oldugu
+                              // icin TouchControls.onTap calismiyor) elemana dokunarak secim
+                              // yapabilmek icin ayri, hafif bir dokunma algilayici
   var walkPicking = false;   // true iken bir sonraki dokunma yurume baslangic noktasidir
   var walkArmedAt = 0;       // walkPicking'in true oldugu an (ms) - armadan ONCE baslamis
                               // (parmak zaten ekrandayken yurume butonuna basilmasi gibi) bir
@@ -244,6 +247,31 @@
     });
     canvas.addEventListener('pointerup', function (e) { crosshairEnd(e); });
     canvas.addEventListener('pointercancel', function (e) { crosshairEnd(e, true); });
+
+    // Yurume modunda secim: TouchControls yurume sirasinda devre disi
+    // (controls.enabled=false, kamera walk.position/yaw'a gore kontrol edilir),
+    // bu yuzden onTap tetiklenmez. Ayni "hizli/az hareketli dokunus = tap"
+    // mantigi (bkz. controls.js _down/_up) burada bagimsizca uygulanir.
+    canvas.addEventListener('pointerdown', function (e) {
+      if (!walk.active) return;
+      walkTapDown = { x: e.clientX, y: e.clientY, t: Date.now(), moved: 0, id: e.pointerId };
+    });
+    canvas.addEventListener('pointermove', function (e) {
+      if (!walk.active || !walkTapDown || walkTapDown.id !== e.pointerId) return;
+      walkTapDown.moved += Math.abs(e.clientX - walkTapDown.x) + Math.abs(e.clientY - walkTapDown.y);
+      walkTapDown.x = e.clientX; walkTapDown.y = e.clientY;
+    });
+    canvas.addEventListener('pointerup', function (e) {
+      if (!walk.active || !walkTapDown || walkTapDown.id !== e.pointerId) { walkTapDown = null; return; }
+      var quick = Date.now() - walkTapDown.t < 350 && walkTapDown.moved < 12;
+      walkTapDown = null;
+      if (!quick) return;
+      var hit = pick(e.clientX, e.clientY);
+      if (hit) selectElement(hit.expressID, false, e.clientX, e.clientY);
+      else { clearSelection(); post('selection', null); }
+    });
+    canvas.addEventListener('pointercancel', function () { walkTapDown = null; });
+
     canvas.addEventListener('webglcontextlost', function (e) {
       e.preventDefault();
       post('error', { code: 'GL_CONTEXT_LOST', message: 'WebGL context kayboldu' });
@@ -1023,22 +1051,34 @@
     if (!el) return;
     var DRAG_PX = 10;
     var TAP_MS = 350;
+    // Iki parmakla baslayan bir jest, ilk belirgin harekete kadar "kararsiz"dir:
+    // parmaklar birbirinden uzaklasip/yaklasiyorsa PINCH-ZOOM, aralarindaki
+    // mesafe sabit kalip ikisi BIRLIKTE dikey kayiyorsa KAT GECISI sayilir.
+    // Boylece tek elle yakinlastirma ile iki parmakla kat degistirme ayni
+    // dokunma alaninda cakismadan bir arada calisir.
+    var FLOOR_SWIPE_LOCK_PX = 16; // bu kadar hareketten sonra jest turu kilitlenir
+    var FLOOR_SWIPE_STEP_PX = 70; // bu kadar ek dikey kaydirma = bir kat daha
     var pointers = [];   // {id, x, y}
     var press = null;    // {x, y, moved, t} - tek parmakla baslayan basinc (tap/pan ayrimi)
     var pinchDist0 = 0;
     var zoom0 = 1;
+    var pinchCY0 = 0;      // iki parmagin baslangictaki dikey ortalamasi
+    var twoFingerMode = null; // null (henuz belirsiz) | 'pinch' | 'floor'
 
     function idx(id) { for (var i = 0; i < pointers.length; i++) if (pointers[i].id === id) return i; return -1; }
     function dist() { var a = pointers[0], b = pointers[1]; return Math.hypot(a.x - b.x, a.y - b.y); }
+    function centerY() { return (pointers[0].y + pointers[1].y) / 2; }
 
     el.addEventListener('pointerdown', function (e) {
       pointers.push({ id: e.pointerId, x: e.clientX, y: e.clientY });
       if (pointers.length === 1) {
         press = { x: e.clientX, y: e.clientY, moved: false, t: Date.now() };
       } else if (pointers.length === 2) {
-        press = null; // ikinci parmak: tap adayi iptal, pinch basliyor
+        press = null; // ikinci parmak: tap adayi iptal, pinch/kat-gecisi basliyor
         pinchDist0 = dist();
         zoom0 = planZoom;
+        pinchCY0 = centerY();
+        twoFingerMode = null;
       }
     });
     el.addEventListener('pointermove', function (e) {
@@ -1053,9 +1093,22 @@
         if (!press || press.moved) planPanByPixels(dx, dy);
       } else if (pointers.length === 2) {
         var d = dist();
-        if (pinchDist0 > 0) {
-          planZoom = SOS.util.clamp(zoom0 * (d / pinchDist0), 0.2, 25);
-          needsRender = true;
+        var cy = centerY();
+        var distDelta = pinchDist0 > 0 ? Math.abs(d - pinchDist0) : 0;
+        var cyDelta = Math.abs(cy - pinchCY0);
+        if (!twoFingerMode) {
+          if (Math.max(distDelta, cyDelta) < FLOOR_SWIPE_LOCK_PX) return; // henuz kilitlenmedi
+          twoFingerMode = (distDelta >= cyDelta) ? 'pinch' : 'floor';
+        }
+        if (twoFingerMode === 'pinch') {
+          if (pinchDist0 > 0) {
+            planZoom = SOS.util.clamp(zoom0 * (d / pinchDist0), 0.2, 25);
+            needsRender = true;
+          }
+        } else { // 'floor'
+          var dy = cy - pinchCY0;
+          if (dy <= -FLOOR_SWIPE_STEP_PX) { switchStorey(1); pinchCY0 = cy; }
+          else if (dy >= FLOOR_SWIPE_STEP_PX) { switchStorey(-1); pinchCY0 = cy; }
         }
       }
     });
@@ -1064,13 +1117,13 @@
       var i = idx(e.pointerId);
       if (i >= 0) pointers.splice(i, 1);
       if (wasTap) planTap(e.clientX, e.clientY);
-      if (pointers.length < 2) pinchDist0 = 0;
+      if (pointers.length < 2) { pinchDist0 = 0; twoFingerMode = null; }
       if (pointers.length === 0) press = null;
     });
     el.addEventListener('pointercancel', function (e) {
       var i = idx(e.pointerId);
       if (i >= 0) pointers.splice(i, 1);
-      press = null; pinchDist0 = 0;
+      press = null; pinchDist0 = 0; twoFingerMode = null;
     });
   }
 
@@ -1315,6 +1368,72 @@
     renderer.render(scene, planCam);
     renderer.setScissorTest(false);
     renderer.setClearColor(bg, 1);
+
+    updatePlanRoomLabels(cutY);
+  }
+
+  /** Plan panosu uzerindeki DOM etiket katmani (#planLabels) - MeasureTool'un
+   *  DOM etiketleriyle ayni teknik (bkz. tools.js _drawPreview), ama planCam/
+   *  planRect'e gore projekte edilir. Havuzdaki elemanlar yeniden kullanilir;
+   *  fazla olanlar gizlenir (her karede DOM olusturup yok etmemek icin). */
+  var planLabelsEl = null;
+  var planLabelPool = []; // { el, nameEl, areaEl }
+  var PLAN_LABEL_MARGIN_PX = 40; // gorunur alanin bu kadar disina tasan etiketler gizlenir
+
+  function planWorldToScreen(x, y, z) {
+    var p = new THREE.Vector3(x, y, z).project(planCam);
+    return {
+      x: planRect.x + (p.x * 0.5 + 0.5) * planRect.w,
+      y: planRect.y + (-p.y * 0.5 + 0.5) * planRect.h
+    };
+  }
+
+  function acquirePlanLabel(i) {
+    var item = planLabelPool[i];
+    if (!item) {
+      var el = document.createElement('div');
+      el.className = 'room-label';
+      var nameEl = document.createElement('div');
+      nameEl.className = 'name';
+      var areaEl = document.createElement('div');
+      areaEl.className = 'area';
+      el.appendChild(nameEl);
+      el.appendChild(areaEl);
+      planLabelsEl.appendChild(el);
+      item = { el: el, nameEl: nameEl, areaEl: areaEl };
+      planLabelPool[i] = item;
+    }
+    return item;
+  }
+
+  /** Sadece TEK bir kat seciliyken (currentStoreyId) o katin oda/alan
+   *  etiketlerini gosterir - "tum katlar" gorunumunde ust uste binen
+   *  etiketler karisikliga yol acacagi icin orada hic cizilmez. */
+  function updatePlanRoomLabels(cutY) {
+    if (!planLabelsEl) planLabelsEl = document.getElementById('planLabels');
+    if (!planLabelsEl) return;
+    var rooms = (model && currentStoreyId != null && model.roomLabels)
+      ? model.roomLabels.get(currentStoreyId) : null;
+    if (!rooms || !rooms.length) {
+      for (var i = 0; i < planLabelPool.length; i++) planLabelPool[i].el.style.display = 'none';
+      return;
+    }
+    for (var j = 0; j < rooms.length; j++) {
+      var r = rooms[j];
+      var item = acquirePlanLabel(j);
+      var s = planWorldToScreen(r.x, cutY, r.z);
+      if (s.x < planRect.x - PLAN_LABEL_MARGIN_PX || s.x > planRect.x + planRect.w + PLAN_LABEL_MARGIN_PX ||
+          s.y < planRect.y - PLAN_LABEL_MARGIN_PX || s.y > planRect.y + planRect.h + PLAN_LABEL_MARGIN_PX) {
+        item.el.style.display = 'none';
+        continue;
+      }
+      item.el.style.display = 'block';
+      item.el.style.left = s.x + 'px';
+      item.el.style.top = s.y + 'px';
+      item.nameEl.textContent = r.name || 'Mahal';
+      item.areaEl.textContent = (Math.round(r.area * 10) / 10).toFixed(1) + ' m²';
+    }
+    for (var k = rooms.length; k < planLabelPool.length; k++) planLabelPool[k].el.style.display = 'none';
   }
 
   /** Plan panosunda tiklanan ekran noktasini planCam ile isinlayip alttaki
@@ -1634,26 +1753,47 @@
   on('layerSeparate', function (p) { explode.setLayer(p.axis, p.factor || 0); });
   on('xray', function (p) { visibility.setXray(!!p.enabled); });
 
-  /* Kat gecisi: secilen kati izole edip ona sigdirir - "hizli gezinme"
-   *  icin patlatmadan bagimsiz, ayri bir mod (VisibilityTool.isolate uzerine kurulu). */
-  on('showStorey', function (p) {
+  /* Kat gecisi: secilen kati sigdirip diger katlari 3B'de tamamen gizlemek
+   *  yerine saydam "hayalet" olarak birakir (bkz. VisibilityTool.showFloorGhost) -
+   *  boylece kullanici referans olarak binanin geri kalanini da secebilir.
+   *  applyStorey hem RN'den gelen showStorey komutu hem de plan panosundaki
+   *  iki-parmak dikey kaydirma jesti (bkz. setupPlanPane) tarafindan kullanilir. */
+  function applyStorey(id) {
     if (!model || !model.storeyElements) return;
-    currentStoreyId = p.id;
+    currentStoreyId = id;
     planPan.x = 0; planPan.z = 0; planZoom = 1;
     planEdgesDirty = true;
-    var ids = model.storeyElements.get(p.id) || [];
-    visibility.isolate(ids);
+    var ids = model.storeyElements.get(id) || [];
+    visibility.showFloorGhost(ids);
     clearSelection();
     post('selection', null);
-    var fitBox = storeyBoxFromIds(ids, p.id);
+    var fitBox = storeyBoxFromIds(ids, id);
     if (fitBox) fit(1.3, fitBox);
     warmup(600);
-  });
+  }
+
+  /** currentStoreyId'yi model.storeys sirasina (yukseklige) gore bir sonraki/
+   *  onceki kata tasir - plan panosunda iki-parmak dikey kaydirma jesti icin.
+   *  Kat secili degilken (currentStoreyId null) ilk jest en alt/ust kata gider.
+   *  RN tarafinin kat secici UI'sinin (FloorNav) da senkron kalmasi icin
+   *  yeni secimi 'storeyChanged' olayiyla bildirir. */
+  function switchStorey(dir) {
+    if (!model || !model.storeys || !model.storeys.length) return;
+    var order = model.storeys;
+    var idx = (currentStoreyId != null) ? order.indexOf(currentStoreyId) : -1;
+    var nextIdx = (idx < 0) ? (dir > 0 ? 0 : order.length - 1) : SOS.util.clamp(idx + dir, 0, order.length - 1);
+    if (nextIdx === idx) return;
+    var id = order[nextIdx];
+    applyStorey(id);
+    post('storeyChanged', { id: id, index: nextIdx });
+  }
+
+  on('showStorey', function (p) { applyStorey(p.id); });
   on('showAllStoreys', function () {
     currentStoreyId = null;
     planPan.x = 0; planPan.z = 0; planZoom = 1;
     planEdgesDirty = true;
-    visibility.isolate(null);
+    visibility.showFloorGhost(null);
     clearSelection();
     post('selection', null);
     fit(1.12);
@@ -1751,9 +1891,6 @@
   on('walkLook', function (p) {
     walk.lookX = SOS.util.clamp((p && p.x) || 0, -1, 1);
     walk.lookY = SOS.util.clamp((p && p.y) || 0, -1, 1);
-  });
-  on('walkSpeed', function (p) {
-    walk.speed = SOS.util.clamp((p && p.speed) || 1, 0.25, 4);
   });
 
   // Otomatik testler ve hata ayiklama icin ic duruma okuma erisimi

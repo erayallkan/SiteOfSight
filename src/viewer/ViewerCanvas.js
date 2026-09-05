@@ -37,6 +37,7 @@ const ViewerCanvas = forwardRef(function ViewerCanvas(props, ref) {
     onError,
     onThumbnail,
     onTimelineReady,
+    onStoreyChanged,
   } = props;
 
   const webRef = useRef(null);
@@ -148,13 +149,14 @@ const ViewerCanvas = forwardRef(function ViewerCanvas(props, ref) {
       case 'error': onError?.(payload); break;
       case 'thumbnail': onThumbnail?.(payload); break;
       case 'timelineReady': onTimelineReady?.(payload); break;
+      case 'storeyChanged': onStoreyChanged?.(payload); break;
       case 'log': if (__DEV__) console.log('[viewer]', payload?.message); break;
       default: break;
     }
   }, [backgroundColor, dark, cubeLabels, surfaceColor, accentColor, borderColor, showFps, safeBottom, modelUri,
       send, bootViewer, loadModel,
       onReady, onProgress, onLoaded, onSelection, onMeasurement, onMeasureState, onWalkStarted, onFps, onError,
-      onThumbnail, onTimelineReady]);
+      onThumbnail, onTimelineReady, onStoreyChanged]);
 
   useEffect(() => {
     if (booted.current && modelUri && !transferStarted.current) loadModel(modelUri);
@@ -203,7 +205,6 @@ const ViewerCanvas = forwardRef(function ViewerCanvas(props, ref) {
     exitWalkthrough: () => send('walkExit', {}),
     walkMove: (x, y) => send('walkMove', { x, y }),
     walkLook: (x, y) => send('walkLook', { x, y }),
-    setWalkSpeed: (speed) => send('walkSpeed', { speed }),
   }), [send]);
 
   if (!htmlUri) {

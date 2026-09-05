@@ -57,6 +57,14 @@
      (pan/pinch-zoom/tap) yakalamak icin uzerine biner. Boyut/konum
      app.js computeLayout() ile ayarlanir. */
   #planPane { position:absolute; display:none; touch-action:none; }
+  /* Kat plani oda/alan etiketleri: app.js updatePlanRoomLabels() ile her
+     karede planCam projeksiyonuna gore konumlandirilir; #planPane'in
+     dokunma dinleyicilerini engellememesi icin pointer-events KAPALI. */
+  #planLabels { position:absolute; inset:0; pointer-events:none; }
+  .room-label { position:absolute; transform:translate(-50%,-50%); text-align:center;
+                white-space:nowrap; text-shadow:0 1px 3px rgba(0,0,0,.9); }
+  .room-label .name { font-size:11px; font-weight:700; color:#EAF4FF; }
+  .room-label .area { font-size:9.5px; font-weight:500; color:#9FC4E8; margin-top:1px; }
   /* Plan ile 3B arasindaki suruklenebilir ayirici: dikey surukleme
      planSplitFrac'i degistirir (bkz. app.js setupPlanDivider). Renkleri
      (arka plan/kenarlik/tutamac) RN temasindan gelir - bkz. app.js
@@ -87,7 +95,7 @@
   <canvas id="gl"></canvas>
   <div id="overlay"><div id="snap"></div><div id="crosshair"></div><div id="hud"></div></div>
   <div id="minimap"><div class="frame"></div><div class="compass">N</div></div>
-  <div id="planPane"></div>
+  <div id="planPane"><div id="planLabels"></div></div>
   <div id="planDivider"><div class="handle"></div></div>
 
   <!-- Vendor: klasik script (ESM DEĞİL) -> file:// altında CORS sorunu yaşanmaz -->

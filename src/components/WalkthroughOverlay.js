@@ -11,9 +11,6 @@ const SIZE = 118;
 const KNOB = 40;
 const MAX_OFFSET = SIZE / 2 - KNOB / 2;
 
-const WALK_SPEEDS = [0.5, 0.75, 1, 1.5, 2, 3];
-const WALK_SPEED_DEFAULT_INDEX = WALK_SPEEDS.indexOf(3);
-
 function Joystick({ onChange }) {
   const { colors } = useApp();
   const [knob, setKnob] = useState({ x: 0, y: 0 });
@@ -62,41 +59,8 @@ function Joystick({ onChange }) {
    getiriyor. Bunun yerine, ekranda calistigi kanitlanmis ust bar / alt cubuk
    deseniyle ayni sekilde, topRow ve bottomRow BAGIMSIZ, kendi alanlariyla
    sinirli absolute View'lar olarak (Fragment ile) dogrudan dondurulur. */
-/** Yurume hizi (-/+): WALK_SPEEDS listesinde adim adim gezinir, 1x varsayilan. */
-function SpeedControl({ onSpeedChange }) {
-  const [index, setIndex] = useState(WALK_SPEED_DEFAULT_INDEX);
 
-  const step = (dir) => {
-    const next = Math.min(WALK_SPEEDS.length - 1, Math.max(0, index + dir));
-    if (next === index) return;
-    setIndex(next);
-    onSpeedChange?.(WALK_SPEEDS[next]);
-  };
-
-  return (
-    <View style={styles.speedWrap}>
-      <Pressable
-        onPress={() => step(-1)}
-        disabled={index === 0}
-        style={[styles.speedBtn, index === 0 && styles.speedBtnDisabled]}
-        hitSlop={8}
-      >
-        <Ionicons name="remove" size={18} color="#fff" />
-      </Pressable>
-      <Text style={styles.speedLabel}>{WALK_SPEEDS[index]}x</Text>
-      <Pressable
-        onPress={() => step(1)}
-        disabled={index === WALK_SPEEDS.length - 1}
-        style={[styles.speedBtn, index === WALK_SPEEDS.length - 1 && styles.speedBtnDisabled]}
-        hitSlop={8}
-      >
-        <Ionicons name="add" size={18} color="#fff" />
-      </Pressable>
-    </View>
-  );
-}
-
-export default function WalkthroughOverlay({ visible, onExit, onMove, onLook, onSpeedChange }) {
+export default function WalkthroughOverlay({ visible, onExit, onMove, onLook }) {
   if (!visible) return null;
   return (
     <Fragment>
@@ -104,7 +68,6 @@ export default function WalkthroughOverlay({ visible, onExit, onMove, onLook, on
         <Pressable onPress={onExit} style={styles.exitBtn} hitSlop={8}>
           <Ionicons name="log-out-outline" size={20} color="#fff" />
         </Pressable>
-        <SpeedControl onSpeedChange={onSpeedChange} />
       </SafeAreaView>
 
       <SafeAreaView style={styles.bottomRow} pointerEvents="box-none" edges={['bottom']}>
@@ -124,16 +87,6 @@ const styles = StyleSheet.create({
     width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center',
     backgroundColor: 'rgba(20,22,28,0.55)', marginTop: 4,
   },
-  speedWrap: {
-    flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4,
-    backgroundColor: 'rgba(20,22,28,0.55)', borderRadius: 21, paddingHorizontal: 4, height: 42,
-  },
-  speedBtn: {
-    width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.14)',
-  },
-  speedBtnDisabled: { opacity: 0.35 },
-  speedLabel: { color: '#fff', fontSize: 13, fontWeight: '700', minWidth: 34, textAlign: 'center' },
   bottomRow: {
     position: 'absolute', left: 0, right: 0, bottom: 0, zIndex: 20, elevation: 20,
     flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 24, paddingBottom: 76,

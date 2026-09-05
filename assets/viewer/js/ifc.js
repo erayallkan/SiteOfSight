@@ -32,6 +32,7 @@ window.SOS = window.SOS || {};
     this.storeysInfo = [];           // [{ id, name }], storeys ile ayni sira - kat gecisi UI'si icin
     this.storeyElements = new Map(); // storey expressID -> [eleman expressID, ...] - kat gecisi icin
     this.storeyElevations = new Map(); // storey expressID -> IFCBUILDINGSTOREY.Elevation (dunya birimi, metre)
+    this.roomLabels = new Map();     // storey expressID -> [{id,name,area,x,z}] - kat plani oda/alan etiketleri
     this.tree = null;
     this.stats = { elements: 0, triangles: 0, groups: 0, ms: 0 };
     this.bbox = new THREE.Box3();
@@ -116,6 +117,7 @@ window.SOS = window.SOS || {};
     post('progress', { phase: 'tree', percent: 85 });
     await yieldFrame();
     this.tree = this._buildSpatialTree();
+    this._buildRoomLabels();
 
     post('progress', { phase: 'done', percent: 100 });
     this.stats.ms = Date.now() - t0;
@@ -379,6 +381,67 @@ window.SOS = window.SOS || {};
     return { root: rootNode, truncated: nodeCount > MAX_NODES, byType: byType };
   };
 
+  /* ---------------- Oda/mahal etiketleri (kat plani panosu) ---------------- */
+
+  /** Kat plani panosunda gosterilecek oda/mahal etiketleri: her IFCSPACE icin
+   *  ad (LongName/Name) ve zeminde (x,z) merkez konumu; alan icin once
+   *  Qto_SpaceBaseQuantities'teki NetFloorArea/GrossFloorArea denenir, yoksa
+   *  sinir kutusunun X-Z izdusumu (yaklasik) kullanilir. Sadece GEOMETRISI
+   *  akan (StreamAllMeshes ile elementIndex'e giren) mahaller konumlandirilabilir -
+   *  bazi IFC ihraclarinda IFCSPACE gorsel govde uretmez, o mahal atlanir. */
+  IFCModel.prototype._buildRoomLabels = function () {
+    var api = this.api, modelID = this.modelID, self = this;
+    this.roomLabels = new Map();
+
+    var spaceIds = [];
+    try {
+      var v = api.GetLineIDsWithType(modelID, WebIFC.IFCSPACE);
+      for (var i = 0; i < v.size(); i++) spaceIds.push(v.get(i));
+    } catch (e) { return; }
+    if (!spaceIds.length) return;
+
+    this._ensurePropertyIndex();
+
+    spaceIds.forEach(function (id) {
+      var storeyId = self.elementStorey.get(id);
+      if (storeyId == null) return;
+      var box = self.getElementBox(id);
+      if (!box) return;
+
+      var name = null;
+      try {
+        var line = api.GetLine(modelID, id, false);
+        name = val(line.LongName) || val(line.Name) || null;
+      } catch (e) {}
+
+      var area = null;
+      var defs = self._psetIndex.get(id) || [];
+      for (var d = 0; d < defs.length && area == null; d++) {
+        var def;
+        try { def = api.GetLine(modelID, defs[d], true); } catch (e2) { continue; }
+        if (!def || !def.Quantities) continue;
+        for (var q = 0; q < def.Quantities.length; q++) {
+          var qq = def.Quantities[q];
+          if (!qq) continue;
+          var qname = val(qq.Name);
+          if (qname === 'NetFloorArea' || qname === 'GrossFloorArea') {
+            var av = val(qq.AreaValue);
+            if (typeof av === 'number') { area = av; break; }
+          }
+        }
+      }
+      if (area == null) {
+        var size = box.getSize(new THREE.Vector3());
+        area = size.x * size.z;
+      }
+
+      var center = box.getCenter(new THREE.Vector3());
+      var list = self.roomLabels.get(storeyId);
+      if (!list) { list = []; self.roomLabels.set(storeyId, list); }
+      list.push({ id: id, name: name, area: area, x: center.x, z: center.z });
+    });
+  };
+
   /* ---------------- Ozellikler (Pset / malzeme / miktar) ---------------- */
 
   IFCModel.prototype._ensurePropertyIndex = function () {
@@ -601,6 +664,7 @@ window.SOS = window.SOS || {};
     this.storeysInfo = [];
     this.storeyElements.clear();
     this.storeyElevations.clear();
+    this.roomLabels.clear();
     this._propCache.clear();
     if (this.api && this.modelID >= 0) {
       try { this.api.CloseModel(this.modelID); } catch (e) {}

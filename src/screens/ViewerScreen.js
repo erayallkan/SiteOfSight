@@ -255,6 +255,14 @@ export default function ViewerScreen({ route, navigation }) {
     else viewer.current?.showStorey(storeys[index]?.id);
   }, [storeys]);
 
+  /** Kat plani panosunda iki-parmak dikey kaydirma jesti (webview icinde,
+   *  bkz. assets/viewer/js/app.js switchStorey) kati DOGRUDAN webview
+   *  tarafinda degistirir; FloorNav'in gosterdigi index'in geri kalmamasi
+   *  icin viewer'in bildirdigi index'i buraya yansitiyoruz. */
+  const handleStoreyChanged = useCallback((payload) => {
+    if (payload && typeof payload.index === 'number') setFloorIndex(payload.index);
+  }, []);
+
   /* ---------------- Bolunmus ekran: kat plani + 3B ---------------- */
 
   const toggleSplit = useCallback(() => {
@@ -395,6 +403,7 @@ export default function ViewerScreen({ route, navigation }) {
         onError={handleError}
         onThumbnail={handleThumbnail}
         onTimelineReady={handleTimelineReady}
+        onStoreyChanged={handleStoreyChanged}
       />
 
       {!walking ? (
@@ -446,14 +455,6 @@ export default function ViewerScreen({ route, navigation }) {
             </Pressable>
           </SafeAreaView>
 
-          <SelectionPopup
-            element={!sheet ? selected : null}
-            onShowProperties={() => setSheet('props')}
-            onIsolate={() => selected && isolate([selected.id])}
-            onHide={() => { if (selected) { toggleVisibility([selected.id], true); clearSelection(); } }}
-            onClear={clearSelection}
-          />
-
           <FloorNav storeys={storeys} currentIndex={floorIndex} onChange={changeFloor} />
 
           {splitOn ? (
@@ -477,6 +478,17 @@ export default function ViewerScreen({ route, navigation }) {
           ) : null}
         </>
       ) : null}
+
+      {/* Yuruyus modunda da (orbit modundaki gibi) dokunulan elemanin hizli-eylem
+          penceresi acilir - selected state kaynagi ortak, tek fark burada her
+          zaman (walking olsun/olmasin) render edilmesi. */}
+      <SelectionPopup
+        element={!sheet ? selected : null}
+        onShowProperties={() => setSheet('props')}
+        onIsolate={() => selected && isolate([selected.id])}
+        onHide={() => { if (selected) { toggleVisibility([selected.id], true); clearSelection(); } }}
+        onClear={clearSelection}
+      />
 
       {/* Yukleme katmani: sahneyi tamamen orten, ekranin tam merkezinde bir
           Modal - konteynerin gercek boyu/inset hesaplarina bagli kalmadan
@@ -553,7 +565,6 @@ export default function ViewerScreen({ route, navigation }) {
         onExit={exitWalkthrough}
         onMove={(x, y) => viewer.current?.walkMove(x, y)}
         onLook={(x, y) => viewer.current?.walkLook(x, y)}
-        onSpeedChange={(speed) => viewer.current?.setWalkSpeed(speed)}
       />
 
       {/* Paneller */}

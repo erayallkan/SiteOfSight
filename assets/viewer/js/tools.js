@@ -69,10 +69,14 @@ window.SOS = window.SOS || {};
 
   /* ---------------- Gorunurluk ---------------- */
 
+  var GHOST_OPACITY = 0.14; // kat gecisinde secili olmayan katlarin saydamligi
+
   function VisibilityTool(env) {
     this.env = env;
     this.hidden = new Set();
     this.isolated = null;
+    this.floorIsolated = null; // showFloorGhost() ile secilen kat - null iken kat modu kapali
+    this._ghostMeshes = null;  // model.groups ile ayni sirada - diger katlarin saydam kopyalari
     this.wireframe = false;
   }
 
@@ -85,15 +89,63 @@ window.SOS = window.SOS || {};
     g.mesh.instanceMatrix.needsUpdate = true;
   };
 
+  /** Her model grubu icin, o grubun geometrisini paylasan ama yari-saydam bir
+   *  malzemeye sahip ikinci bir InstancedMesh olusturur - kat gecisinde secili
+   *  olmayan katlar tamamen gizlenmek yerine bu "hayalet" kopyada gosterilir
+   *  (bkz. _refresh). Sadece ilk ihtiyac aninda (floorIsolated ilk kez
+   *  kullanildiginda) kurulur; model degisince (dispose/yeni root) referans
+   *  showAll() ile temizlenir. */
+  VisibilityTool.prototype._ensureGhostMeshes = function () {
+    if (this._ghostMeshes) return;
+    var model = this.env.model;
+    this._ghostMeshes = [];
+    for (var g = 0; g < model.groups.length; g++) {
+      var group = model.groups[g];
+      var mat = group.mesh.material.clone();
+      mat.transparent = true;
+      mat.opacity = GHOST_OPACITY;
+      mat.depthWrite = false;
+      var ghost = new THREE.InstancedMesh(group.mesh.geometry, mat, group.base.length);
+      ghost.frustumCulled = false;
+      ghost.visible = false;
+      for (var i = 0; i < group.base.length; i++) ghost.setMatrixAt(i, ZERO);
+      ghost.instanceMatrix.needsUpdate = true;
+      model.root.add(ghost);
+      this._ghostMeshes.push(ghost);
+    }
+  };
+
+  VisibilityTool.prototype._setGhostInstance = function (ref, visible) {
+    var ghost = this._ghostMeshes[ref.g];
+    if (!ghost) return;
+    var base = this.env.model.groups[ref.g].base[ref.i];
+    ghost.setMatrixAt(ref.i, visible ? base : ZERO);
+    ghost.instanceMatrix.needsUpdate = true;
+  };
+
   VisibilityTool.prototype._refresh = function () {
     var model = this.env.model;
     if (!model) return;
     var self = this;
+    var ghostActive = !!this.floorIsolated;
+    if (ghostActive) this._ensureGhostMeshes();
     model.elementIndex.forEach(function (refs, id) {
-      var visible = !self.hidden.has(id) && (!self.isolated || self.isolated.has(id));
-      for (var i = 0; i < refs.length; i++) self._setInstance(refs[i], visible);
+      var baseVisible = !self.hidden.has(id) && (!self.isolated || self.isolated.has(id));
+      var inFloor = !ghostActive || self.floorIsolated.has(id);
+      var mainVisible = baseVisible && inFloor;
+      var ghostVisible = ghostActive && baseVisible && !inFloor;
+      for (var i = 0; i < refs.length; i++) {
+        self._setInstance(refs[i], mainVisible);
+        if (ghostActive) self._setGhostInstance(refs[i], ghostVisible);
+      }
     });
-    for (var g = 0; g < model.groups.length; g++) model.groups[g].mesh.computeBoundingSphere();
+    for (var g = 0; g < model.groups.length; g++) {
+      model.groups[g].mesh.computeBoundingSphere();
+      if (this._ghostMeshes) {
+        this._ghostMeshes[g].visible = ghostActive;
+        this._ghostMeshes[g].computeBoundingSphere();
+      }
+    }
     this.env.requestRender();
   };
 
@@ -111,9 +163,26 @@ window.SOS = window.SOS || {};
     this.isolated = (ids && ids.length) ? new Set(ids) : null;
     this._refresh();
   };
+  /** Kat gecisi: verilen id'ler (secili kat) opak kalir, kalan tum gorunur
+   *  elemanlar saydam "hayalet" kopyada gosterilir (tamamen gizlenmez) -
+   *  boylece kullanici digger katlarin konumunu 3B'de referans olarak
+   *  gorebilir. ids bos/null verilirse kat modu kapanir (herkes opak). */
+  VisibilityTool.prototype.showFloorGhost = function (ids) {
+    this.floorIsolated = (ids && ids.length) ? new Set(ids) : null;
+    this._refresh();
+  };
   VisibilityTool.prototype.showAll = function () {
     this.hidden.clear();
     this.isolated = null;
+    this.floorIsolated = null;
+    if (this._ghostMeshes) {
+      for (var g = 0; g < this._ghostMeshes.length; g++) {
+        var gm = this._ghostMeshes[g];
+        gm.material.dispose();
+        if (gm.parent) gm.parent.remove(gm);
+      }
+      this._ghostMeshes = null;
+    }
     this._refresh();
   };
   VisibilityTool.prototype.setWireframe = function (on) {
