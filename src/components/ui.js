@@ -1,7 +1,7 @@
 /* Kucuk, bagimsiz UI parcalari: BottomSheet, Slider, SegmentedControl, Row, Pill */
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
-  Modal, PanResponder, Pressable, ScrollView, StyleSheet, Switch, Text, View,
+  Dimensions, Modal, PanResponder, Pressable, ScrollView, StyleSheet, Switch, Text, View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -11,19 +11,52 @@ import { useApp } from '../store/AppContext';
 
 /** nonModal: true iken RN Modal kullanilmaz - panel sadece kendi alaninda
  *  dokunuş yakalar, geri kalan ekran (ör. 3B sahne) altta etkilesimde kalir.
- *  Kesit ve Goruntuleme gibi, acikken sahnenin de oynatilabilmesi gereken
- *  paneller icin kullanilir. */
+ *  Acikken sahnenin de oynatilabilmesi gereken goruntuleyici panelleri
+ *  (kat agaci, ozellikler, olcum, kesit, goruntuleme, zaman tuneli) icin
+ *  kullanilir. Ust bardaki tutamactan (grabber) surukleyerek yukseklik
+ *  MIN_SHEET_RATIO..MAX_SHEET_RATIO araliginda degistirilebilir. */
+const MIN_SHEET_RATIO = 0.22;
+const MAX_SHEET_RATIO = 0.92;
+
 export function BottomSheet({ visible, onClose, title, children, heightRatio = 0.62, footer, nonModal = false }) {
   const { colors } = useApp();
+
+  // Panel her acildiginda varsayilan yukseklige donsun diye ratio, gorunurluk
+  // gecisinde sifirlanir; acikken grabber'dan surukleyerek degistirilebilir.
+  const [ratio, setRatio] = useState(heightRatio);
+  const ratioRef = useRef(heightRatio);
+  const startRatioRef = useRef(heightRatio);
+
+  useEffect(() => {
+    if (visible) {
+      ratioRef.current = heightRatio;
+      setRatio(heightRatio);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible]);
+
+  const dragResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (evt, g) => Math.abs(g.dy) > 2,
+      onPanResponderGrant: () => { startRatioRef.current = ratioRef.current; },
+      onPanResponderMove: (evt, g) => {
+        const screenH = Dimensions.get('window').height || 1;
+        const next = Math.min(MAX_SHEET_RATIO, Math.max(MIN_SHEET_RATIO, startRatioRef.current - g.dy / screenH));
+        ratioRef.current = next;
+        setRatio(next);
+      },
+    })
+  ).current;
 
   const panel = (
     <View
       style={[
         s.sheet,
-        { backgroundColor: colors.sheet, borderColor: colors.border, height: `${Math.round(heightRatio * 100)}%` },
+        { backgroundColor: colors.sheet, borderColor: colors.border, height: `${Math.round(ratio * 100)}%` },
       ]}
     >
-      <View style={s.grabber}>
+      <View style={s.grabber} {...dragResponder.panHandlers}>
         <View style={[s.grabberBar, { backgroundColor: colors.border }]} />
       </View>
       <View style={s.sheetHeader}>
@@ -265,7 +298,7 @@ const s = StyleSheet.create({
     position: 'absolute', left: 0, right: 0, bottom: 0, zIndex: 20, elevation: 20,
     borderTopLeftRadius: 22, borderTopRightRadius: 22, borderWidth: StyleSheet.hairlineWidth,
   },
-  grabber: { alignItems: 'center', paddingTop: 8 },
+  grabber: { alignItems: 'center', paddingVertical: 10 },
   grabberBar: { width: 42, height: 4, borderRadius: 2 },
   sheetHeader: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',

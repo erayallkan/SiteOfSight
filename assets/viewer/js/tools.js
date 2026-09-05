@@ -289,13 +289,125 @@ window.SOS = window.SOS || {};
     this.snapDot = document.getElementById('snap');
     this.overlay = document.getElementById('overlay');
     this._labels = new Map();
+
+    // Bekleyen (henuz tamamlanmamis) olcumun gorsel yardimcilari: ilk (ve
+    // angle'da ikinci) noktanin kalici noktasi + parmagin/capraz-imlecin
+    // su anki konumuna kadar canli "lastik bant" onizleme cizgisi ve degeri.
+    this._pendingMarkers = [];
+    this._previewLine = null;
+    this._previewLabelEl = null;
+
+    // Tamamlanmis bir distance/angle olcumunun ucundaki bir noktayi
+    // surukleyerek yeniden konumlandirma durumu - bkz. hitTestPoint/
+    // beginEditPoint/updateEditPoint/endEditPoint/cancelEditPoint.
+    this._editing = null;
   }
 
   MeasureTool.prototype.setMode = function (mode) {
     this.mode = mode || 'none';
     this.pending = [];
     this._clearPreview();
+    this._clearPendingMarkers();
+    this._clearPreviewLine();
     if (this.snapDot) this.snapDot.style.display = 'none';
+  };
+
+  /** Yarim kalan (bekleyen) nokta dizisini iptal eder - ör. iki parmakla
+   *  dokunarak "basa sar" jesti icin. true dondurur ancak iptal edilecek
+   *  bir sey varsa. */
+  MeasureTool.prototype.cancelPending = function () {
+    if (!this.pending.length) return false;
+    this.pending = [];
+    this._clearPendingMarkers();
+    this._clearPreviewLine();
+    this.env.requestRender();
+    return true;
+  };
+
+  MeasureTool.prototype._addPendingMarker = function (p) {
+    var dot = new THREE.Mesh(new THREE.SphereGeometry(1, 10, 8), new THREE.MeshBasicMaterial({ color: 0xffffff, depthTest: false }));
+    dot.position.copy(p);
+    dot.renderOrder = 1000;
+    dot.userData.isMeasureDot = true;
+    this.group.add(dot);
+    this._pendingMarkers.push(dot);
+  };
+
+  MeasureTool.prototype._clearPendingMarkers = function () {
+    var self = this;
+    this._pendingMarkers.forEach(function (d) {
+      self.group.remove(d);
+      d.geometry.dispose();
+      d.material.dispose();
+    });
+    this._pendingMarkers = [];
+  };
+
+  /** Bekleyen olcumun son noktasindan (ya da angle'da ikinci noktasindan)
+   *  verilen dunya noktasina kadar canli bir "lastik bant" cizgisi ve
+   *  (varsa) o anki degeri gosterir - kullanici parmagini/capraz-imleci
+   *  hareket ettirirken sonuc noktayi koymadan ONCE gorulebilir olsun diye. */
+  MeasureTool.prototype.previewTo = function (point) {
+    if (this.mode === 'laser' || this.mode === 'none' || !this.pending.length || !point) {
+      this._clearPreviewLine();
+      return;
+    }
+    var pts, text = null;
+    if (this.mode === 'distance') {
+      pts = [this.pending[0], point];
+      var mm = this.pending[0].distanceTo(point) * this.env.model._lengthScaleToMm;
+      text = SOS.util.formatLength(mm, this.unit);
+    } else {
+      if (this.pending.length === 1) {
+        pts = [this.pending[0], point];
+      } else {
+        var v1 = new THREE.Vector3().subVectors(this.pending[0], this.pending[1]);
+        var v2 = new THREE.Vector3().subVectors(point, this.pending[1]);
+        var deg = THREE.MathUtils.radToDeg(v1.angleTo(v2));
+        pts = [this.pending[1], point];
+        text = (Math.round(deg * 10) / 10).toFixed(1) + ' deg';
+      }
+    }
+    this._drawPreview(pts, text);
+  };
+
+  MeasureTool.prototype._drawPreview = function (pts, text) {
+    if (!this._previewLine) {
+      var mat = new THREE.LineDashedMaterial({
+        color: 0xffffff, dashSize: 0.06, gapSize: 0.04,
+        depthTest: false, transparent: true, opacity: 0.9
+      });
+      var geo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+      this._previewLine = new THREE.Line(geo, mat);
+      this._previewLine.renderOrder = 998;
+      this.group.add(this._previewLine);
+    }
+    this._previewLine.material.color.setHex(KIND_COLOR[this.mode] || 0x2563EB);
+    this._previewLine.geometry.setFromPoints(pts);
+    this._previewLine.computeLineDistances();
+    this._previewLine.visible = true;
+
+    if (text) {
+      if (!this._previewLabelEl) {
+        this._previewLabelEl = document.createElement('div');
+        this._previewLabelEl.className = 'label preview';
+        this.overlay.appendChild(this._previewLabelEl);
+      }
+      this._previewLabelEl.textContent = text;
+      this._previewLabelEl.style.display = 'block';
+      var mid = pts[0].clone().add(pts[1]).multiplyScalar(0.5);
+      var s = this.env.toScreen(mid);
+      this._previewLabelEl.style.left = s.x + 'px';
+      this._previewLabelEl.style.top = s.y + 'px';
+    } else if (this._previewLabelEl) {
+      this._previewLabelEl.style.display = 'none';
+    }
+    this.env.requestRender();
+  };
+
+  MeasureTool.prototype._clearPreviewLine = function () {
+    if (this._previewLine) this._previewLine.visible = false;
+    if (this._previewLabelEl) this._previewLabelEl.style.display = 'none';
   };
 
   MeasureTool.prototype.setUnit = function (u) { this.unit = u || 'mm'; this._refreshLabels(); };
@@ -378,12 +490,13 @@ window.SOS = window.SOS || {};
   MeasureTool.prototype.hover = function (x, y) {
     if (this.mode === 'none' || !this.snapDot) return;
     var hit = this.env.pick(x, y);
-    if (!hit) { this.snapDot.style.display = 'none'; return; }
+    if (!hit) { this.snapDot.style.display = 'none'; this._clearPreviewLine(); return; }
     var p = this._snapPoint(hit);
     var s = this.env.toScreen(p);
     this.snapDot.style.display = 'block';
     this.snapDot.style.left = s.x + 'px';
     this.snapDot.style.top = s.y + 'px';
+    this.previewTo(p);
   };
 
   MeasureTool.prototype.tap = function (x, y) {
@@ -403,11 +516,25 @@ window.SOS = window.SOS || {};
     }
 
     var p = this._snapPoint(hit);
+
+    // Titreyen parmakla ayni noktaya ust uste dokunma -> sifir uzunluklu/
+    // gecersiz (NaN acili) bir olcum olusturmasin diye, bir onceki bekleyen
+    // noktaya EKRAN uzayinda cok yakinsa yoksayilir (nokta atilmaz).
+    if (this.pending.length) {
+      var prevScreen = this.env.toScreen(this.pending[this.pending.length - 1]);
+      var curScreen = this.env.toScreen(p);
+      if (Math.hypot(curScreen.x - prevScreen.x, curScreen.y - prevScreen.y) < 6) return true;
+    }
+
     this.pending.push(p);
     var need = this.mode === 'angle' ? 3 : 2;
     if (this.pending.length >= need) {
       this._commit(this.pending.slice(0, need));
       this.pending = [];
+      this._clearPendingMarkers();
+      this._clearPreviewLine();
+    } else {
+      this._addPendingMarker(p);
     }
     this.env.requestRender();
     return true;
@@ -415,20 +542,97 @@ window.SOS = window.SOS || {};
 
   MeasureTool.prototype._commit = function (points) {
     var item = { id: this._nextId++, kind: this.mode, points: points, objects: [] };
+    this._recomputeItem(item);
+    this._finalize(item);
+  };
 
-    if (this.mode === 'distance') {
+  /** item.points'ten (distance: 2 nokta, angle: 3 nokta) value/text alanlarini
+   *  yeniden hesaplar. Hem ilk olusturmada (_commit) hem de bir ucun
+   *  suruklenerek duzenlenmesinden sonra (updateEditPoint) kullanilir. */
+  MeasureTool.prototype._recomputeItem = function (item) {
+    var points = item.points;
+    if (item.kind === 'distance') {
       var mm = points[0].distanceTo(points[1]) * this.env.model._lengthScaleToMm;
       item.value = mm;
       item.text = SOS.util.formatLength(mm, this.unit);
-    } else {
+    } else if (item.kind === 'angle') {
       var v1 = new THREE.Vector3().subVectors(points[0], points[1]);
       var v2 = new THREE.Vector3().subVectors(points[2], points[1]);
       var deg = THREE.MathUtils.radToDeg(v1.angleTo(v2));
       item.value = deg;
       item.text = (Math.round(deg * 10) / 10).toFixed(1) + ' deg';
     }
+  };
 
-    this._finalize(item);
+  /** Ekran konumuna (x,y) en yakin, DUZENLENEBILIR (distance/angle) bir
+   *  olcum ucunu bulur - lazer olcumleri kendi yuzeyinden turetildigi icin
+   *  ucu tek tek surukleyerek anlamli sekilde duzenlenemez, bu yuzden
+   *  disarida birakilir. radiusPx icinde hicbir sey yoksa null doner. */
+  MeasureTool.prototype.hitTestPoint = function (x, y, radiusPx) {
+    var r = radiusPx || 26;
+    var best = null, bestDist = r;
+    for (var idx = 0; idx < this.items.length; idx++) {
+      var item = this.items[idx];
+      if (item.kind === 'laser') continue;
+      for (var i = 0; i < item.points.length; i++) {
+        var s = this.env.toScreen(item.points[i]);
+        if (s.z >= 1) continue;
+        var d = Math.hypot(s.x - x, s.y - y);
+        if (d < bestDist) { bestDist = d; best = { item: item, pointIndex: i }; }
+      }
+    }
+    return best;
+  };
+
+  /** ref: hitTestPoint() sonucu ({item, pointIndex}). Surukleme basladiginda
+   *  cagrilir, orijinal konumu saklar (cancelEditPoint ile geri donebilmek icin). */
+  MeasureTool.prototype.beginEditPoint = function (ref) {
+    if (!ref) return;
+    this._editing = { item: ref.item, pointIndex: ref.pointIndex, original: ref.item.points[ref.pointIndex].clone() };
+  };
+
+  /** Surukleme sirasinda her hareket karesinde cagrilir; (x,y) ekran
+   *  konumundaki vurusu (varsa) koseye/kenara yakalayip duzenlenen ucu oraya
+   *  tasir ve olcumu aninda yeniden cizer. {point, snapped} ya da (vurus
+   *  yoksa) null doner. */
+  MeasureTool.prototype.updateEditPoint = function (x, y) {
+    var ref = this._editing;
+    if (!ref) return null;
+    var hit = this.env.pick(x, y);
+    if (!hit) return null;
+    var cand = this._snapCandidate(hit);
+    ref.item.points[ref.pointIndex] = cand.point;
+    this._recomputeItem(ref.item);
+    this._redrawItem(ref.item);
+    this.env.requestRender();
+    return cand;
+  };
+
+  /** Suruklemeyi degeriyle onaylar (parmak kaldirildi). */
+  MeasureTool.prototype.endEditPoint = function () {
+    if (!this._editing) return;
+    this._editing = null;
+    post('measureState', this.state());
+  };
+
+  /** Suruklemeyi iptal edip ucu surukleme oncesi konumuna geri getirir
+   *  (ör. pointercancel - ikinci parmak/sistem kesintisi). */
+  MeasureTool.prototype.cancelEditPoint = function () {
+    var ref = this._editing;
+    if (!ref) return;
+    ref.item.points[ref.pointIndex] = ref.original;
+    this._recomputeItem(ref.item);
+    this._redrawItem(ref.item);
+    this.env.requestRender();
+    this._editing = null;
+  };
+
+  /** Bir item'in cizimini (dot/line/label) sifirdan yeniler - points/text
+   *  degisikliginin sahneye yansimasi icin. id ve items[] uzerindeki konumu
+   *  korunur (sadece _remove + _draw cagrilir, array'den cikarilmaz). */
+  MeasureTool.prototype._redrawItem = function (item) {
+    this._remove(item);
+    this._draw(item);
   };
 
   /** Vurulan noktadan uc olcum cizgisi cikarir - "o yuzeyin X/Y/Z olculeri":
@@ -688,6 +892,8 @@ window.SOS = window.SOS || {};
     this.items = [];
     this.redoStack = [];
     this.pending = [];
+    this._clearPendingMarkers();
+    this._clearPreviewLine();
     this.env.requestRender();
     post('measureState', this.state());
   };

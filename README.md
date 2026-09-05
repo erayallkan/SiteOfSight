@@ -180,7 +180,9 @@ Metro paketleme (`npx expo export --platform android`) hatasiz tamamlaniyor;
   islenen eleman sayisi gosterilir.
 - Zaman tuneli, tarih bilgisini yalniz `Pset` `NominalValue` degerlerinde ISO
   formatinda (`YYYY-MM-DD...`) arar; `IfcTask`/`IfcWorkSchedule` gibi yapim
-  programi verisi ayrica islenmez.
+  programi verisi ayrica islenmez. Bir elemanda bulunan EN ERKEN ve EN GEC
+  tarih start/end araligi olarak alinir (tek tarih varsa ikisi ayni); kesim
+  tarihi bu araliga girerse eleman "devam ediyor" sayilip turuncu vurgulanir.
 - Deep link (disaridan dosya acma) icin `app.json` degisiklikleri native
   build'de (`expo prebuild` / EAS) etkin olur; Expo Go'da sinirli test edilebilir.
 - Hesap gerekiyorsa Firebase Auth gibi bir BaaS eklenebilir; mevcut akista

@@ -236,6 +236,7 @@ export default function ModelTreeSheet({
       title={t('viewer.tree_')}
       heightRatio={0.72}
       footer={multiFooter}
+      nonModal
     >
       <View style={styles.header}>
         <View style={styles.searchRow}>

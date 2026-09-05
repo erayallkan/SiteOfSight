@@ -36,7 +36,7 @@ export default function MeasureSheet({
   );
 
   return (
-    <BottomSheet visible={visible} onClose={onClose} title={t('viewer.measure')} heightRatio={0.66}>
+    <BottomSheet visible={visible} onClose={onClose} title={t('viewer.measure')} heightRatio={0.66} nonModal>
       <View style={{ paddingHorizontal: 14 }}>
         <SectionTitle>{t('measure.mode')}</SectionTitle>
         <Segmented

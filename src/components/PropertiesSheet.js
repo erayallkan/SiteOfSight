@@ -22,7 +22,7 @@ export default function PropertiesSheet({ visible, onClose, element, onIsolate, 
 
   if (!element) {
     return (
-      <BottomSheet visible={visible} onClose={onClose} title={t('viewer.properties')} heightRatio={0.4}>
+      <BottomSheet visible={visible} onClose={onClose} title={t('viewer.properties')} heightRatio={0.4} nonModal>
         <EmptyState icon="hand-left-outline" title={t('viewer.noSelection')} />
       </BottomSheet>
     );
@@ -32,7 +32,7 @@ export default function PropertiesSheet({ visible, onClose, element, onIsolate, 
   const dims = element.dimensions;
 
   return (
-    <BottomSheet visible={visible} onClose={onClose} title={t('viewer.properties')} heightRatio={0.68}>
+    <BottomSheet visible={visible} onClose={onClose} title={t('viewer.properties')} heightRatio={0.68} nonModal>
       <ScrollArea>
         {/* Kimlik karti */}
         <View style={[styles.card, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>

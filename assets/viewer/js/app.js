@@ -13,6 +13,7 @@
   var renderer, scene, perspCamera, orthoCamera, camera, controls, cube;
   var model = null;
   var section, visibility, explode, measure;
+  var timelineTintedIds = new Set(); // 4D zaman tunelinde "devam ediyor" olarak boyanan expressID'ler
   var selectionMesh = null;
   var selectedId = null;
   var needsRender = true;
@@ -90,6 +91,7 @@
   var CROSSHAIR_LIFT = 90;    // px, parmagin ustunde gorunsun diye
   var chPress = null;         // { x, y, id }
   var chActive = false;
+  var chEditRef = null;       // surukleme tamamlanmis bir olcum ucunu mu tasiyor: { item, pointIndex } | null
   // Mobil GPU'larda ilk cizim, shader derlemesi arka planda oldugu icin sessizce
   // "bos kare" verebilir (WebGL programlari lazy/async compile edilir - suresi
   // cihaza gore degisir, sabit kare sayisi yetersiz kalabilir). Model her
@@ -210,10 +212,22 @@
     canvas.addEventListener('pointerdown', function (e) {
       if (measure.mode === 'none') return;
       if (chPress) {
-        // ikinci parmak indi (olasi pinch): bekleyen surukleme adayini iptal et
+        // ikinci parmak indi (olasi pinch): bekleyen surukleme adayini,
+        // yarim kalmis olcum noktalarini VE (varsa) surdurulmekte olan
+        // uc duzenlemesini iptal et - kullanici iki parmakla dokunarak
+        // yanlis baslanmis bir islemi kolayca basa sarabilsin diye.
+        if (chActive && chEditRef) measure.cancelEditPoint();
+        if (chActive) { crosshairEl.style.display = 'none'; controls.enabled = true; }
         chPress = null;
+        chActive = false;
+        chEditRef = null;
+        measure.cancelPending();
         return;
       }
+      // Var olan bir olcumun (distance/angle) ucuna yakin basildiysa, yeni
+      // nokta eklemek yerine o ucu suruklenerek yeniden konumlandirma
+      // moduna gecilir - surukleme esigi asilana kadar henuz kesin degil.
+      chEditRef = measure.hitTestPoint(e.clientX, e.clientY);
       chPress = { x: e.clientX, y: e.clientY, id: e.pointerId };
     }, { passive: true });
     canvas.addEventListener('pointermove', function (e) {
@@ -224,6 +238,7 @@
         chActive = true;
         controls.enabled = false;
         if (measure.snapDot) measure.snapDot.style.display = 'none';
+        if (chEditRef) measure.beginEditPoint(chEditRef);
       }
       crosshairShow(e.clientX, e.clientY);
     });
@@ -471,24 +486,36 @@
    *  kose/kenar yakalama adayini onizler (yakalanmissa vurgulu gosterilir). */
   function crosshairShow(x, y) {
     var cy = y - CROSSHAIR_LIFT;
-    var hit = pick(x, cy);
     var snapped = false;
 
-    // Lazer disindaki modlarda (distance/angle) en yakin kose/kenar-orta
-    // adayi surukleme SIRASINDA da onizlenir (mavi nokta) - onceden bu sadece
-    // parmak kaldirildiginda SESSIZCE uygulaniyordu, kullanici nereye
-    // "kilitleneceğini" goremiyordu.
-    if (hit && measure.mode !== 'laser') {
-      var cand = measure._snapCandidate(hit);
-      snapped = cand.snapped;
-      if (cand.point && measure.snapDot) {
-        var s = toScreen(cand.point);
-        measure.snapDot.style.display = 'block';
-        measure.snapDot.style.left = s.x + 'px';
-        measure.snapDot.style.top = s.y + 'px';
+    if (chEditRef) {
+      // Var olan bir olcum ucu suruklenerek tasiniyor: nokta dogrudan yeni
+      // konuma (koseye/kenara yakalanarak) tasinir ve olcum aninda yeniden
+      // cizilir - o ucun kendisi zaten gorsel geri bildirim oldugu icin ayrica
+      // mavi yakalama noktasina gerek yok.
+      var cand0 = measure.updateEditPoint(x, cy);
+      snapped = !!(cand0 && cand0.snapped);
+      if (measure.snapDot) measure.snapDot.style.display = 'none';
+    } else {
+      var hit = pick(x, cy);
+      // Lazer disindaki modlarda (distance/angle) en yakin kose/kenar-orta
+      // adayi surukleme SIRASINDA da onizlenir (mavi nokta) - onceden bu sadece
+      // parmak kaldirildiginda SESSIZCE uygulaniyordu, kullanici nereye
+      // "kilitleneceğini" goremiyordu.
+      if (hit && measure.mode !== 'laser') {
+        var cand = measure._snapCandidate(hit);
+        snapped = cand.snapped;
+        if (cand.point && measure.snapDot) {
+          var s = toScreen(cand.point);
+          measure.snapDot.style.display = 'block';
+          measure.snapDot.style.left = s.x + 'px';
+          measure.snapDot.style.top = s.y + 'px';
+        }
+        measure.previewTo(cand.point);
+      } else {
+        if (measure.snapDot) measure.snapDot.style.display = 'none';
+        measure.previewTo(null);
       }
-    } else if (measure.snapDot) {
-      measure.snapDot.style.display = 'none';
     }
 
     crosshairEl.style.left = x + 'px';
@@ -502,7 +529,10 @@
 
   function crosshairEnd(e, cancelled) {
     if (!chPress || chPress.id !== e.pointerId) return;
-    if (chActive && !cancelled) {
+    if (chActive && chEditRef) {
+      if (cancelled) measure.cancelEditPoint();
+      else measure.endEditPoint();
+    } else if (chActive && !cancelled) {
       measure.tap(parseFloat(crosshairEl.dataset.x), parseFloat(crosshairEl.dataset.y));
     }
     if (chActive) {
@@ -512,6 +542,7 @@
       chActive = false;
     }
     chPress = null;
+    chEditRef = null;
   }
 
   /* ---------------- Secim ---------------- */
@@ -1519,6 +1550,7 @@
       controls.enabled = true;
       visibility.showAll();
       visibility.setXray(false);
+      timelineTintedIds = new Set();
       explode.reset();
       setProjection('perspective');
       // Once bakis yonu, sonra o yone gore sikica cerceveleme
@@ -1629,9 +1661,33 @@
   });
 
   /* 4D zaman tuneli: Pset ozelliklerinde ISO tarihi (YYYY-MM-DD...) bulunan
-   *  elemanlar taranir; tarihi OLMAYAN elemanlar (ör. temel/tasiyici sistem
-   *  disindaki cogu eleman) her zaman gorunur kalir - sadece tarihli
-   *  elemanlar secili kesim tarihine gore gizlenir/gosterilir. */
+   *  elemanlar taranir; her eleman icin { start, end } araligi cikarilir
+   *  (tek tarih varsa ikisi ayni). Tarihi OLMAYAN elemanlar (ör. temel/tasiyici
+   *  sistem disindaki cogu eleman) her zaman gorunur kalir. Secili kesim
+   *  tarihine gore: start > kesim ise eleman HENUZ BASLAMADI (gizli); end >
+   *  kesim ise DEVAM EDIYOR (turuncu vurgu ile gorunur); aksi halde TAMAMLANDI
+   *  (normal gorunur). */
+  var TIMELINE_PROGRESS_COLOR = new THREE.Color(0xFFA53D);
+  var TIMELINE_WHITE = new THREE.Color(0xFFFFFF);
+
+  /** Bir elemanin tum InstancedMesh ornek renklerini turuncuya (devam ediyor)
+   *  veya beyaza (vurgusuz - taban rengi degismeden kalir) ayarlar. instanceColor
+   *  bir mesh'te ILK kez kullanildiginda three.js onu otomatik beyazla doldurur
+   *  ve shader'in yeniden derlenmesi gerekir (bu yuzden sadece o an material
+   *  needsUpdate isaretlenir); sonraki guncellemeler ucuzdur. */
+  function setTimelineTint(id, tinted) {
+    var refs = model.elementIndex.get(id);
+    if (!refs) return;
+    for (var i = 0; i < refs.length; i++) {
+      var ref = refs[i];
+      var mesh = model.groups[ref.g].mesh;
+      var hadColor = !!mesh.instanceColor;
+      mesh.setColorAt(ref.i, tinted ? TIMELINE_PROGRESS_COLOR : TIMELINE_WHITE);
+      if (!hadColor) mesh.material.needsUpdate = true;
+      mesh.instanceColor.needsUpdate = true;
+    }
+  }
+
   on('timelineBuild', async function () {
     if (!model) { post('timelineReady', { dates: [], elementsCount: 0 }); return; }
     try {
@@ -1643,15 +1699,28 @@
     }
   });
   on('timelineSet', function (p) {
-    if (!model || !model._timelineDates) return;
+    if (!model || !model._timelineRanges) return;
     visibility.showAll();
     var hideIds = [];
-    model._timelineDates.forEach(function (ts, id) { if (ts > p.ts) hideIds.push(id); });
+    var progressIds = new Set();
+    model._timelineRanges.forEach(function (r, id) {
+      if (r.start > p.ts) { hideIds.push(id); return; }
+      if (r.end > p.ts) progressIds.add(id);
+    });
     if (hideIds.length) visibility.hide(hideIds);
+    timelineTintedIds.forEach(function (id) { if (!progressIds.has(id)) setTimelineTint(id, false); });
+    progressIds.forEach(function (id) { if (!timelineTintedIds.has(id)) setTimelineTint(id, true); });
+    timelineTintedIds = progressIds;
     planEdgesDirty = true;
     warmup(400);
   });
-  on('timelineClear', function () { visibility.showAll(); planEdgesDirty = true; warmup(400); });
+  on('timelineClear', function () {
+    visibility.showAll();
+    timelineTintedIds.forEach(function (id) { setTimelineTint(id, false); });
+    timelineTintedIds = new Set();
+    planEdgesDirty = true;
+    warmup(400);
+  });
 
   on('select', function (p) {
     if (p.id === null || p.id === undefined) { clearSelection(); return; }

@@ -535,10 +535,12 @@ window.SOS = window.SOS || {};
   var ISO_DATE_RE = /^(\d{4})-(\d{2})-(\d{2})/;
 
   /** Property set'lerde ISO tarihi (YYYY-MM-DD...) formatinda deger tasiyan
-   *  elemanlari tarar; her eleman icin bulunan EN ERKEN tarihi kaydeder.
-   *  Sonuc this._timelineDates (expressID -> ms) uzerinde saklanir; tarih
-   *  ICERMEYEN elemanlar bu haritada yer almaz (bkz. app.js 'timelineSet' -
-   *  boyle elemanlar zaman tunelinden bagimsiz her zaman gorunur kalir). */
+   *  elemanlari tarar; her eleman icin bulunan EN ERKEN ve EN GEC tarihi
+   *  { start, end } olarak kaydeder (tek tarih varsa start === end - o eleman
+   *  o gun ani olarak "tamamlanmis" sayilir). Sonuc this._timelineRanges
+   *  (expressID -> {start, end}) uzerinde saklanir; tarih ICERMEYEN elemanlar
+   *  bu haritada yer almaz (bkz. app.js 'timelineSet' - boyle elemanlar zaman
+   *  tunelinden bagimsiz her zaman gorunur kalir). */
   IFCModel.prototype.scanTimelineDates = async function () {
     this._ensurePropertyIndex();
     var api = this.api, modelID = this.modelID;
@@ -549,7 +551,7 @@ window.SOS = window.SOS || {};
     for (var idx = 0; idx < ids.length; idx++) {
       var eid = ids[idx];
       var defs = this._psetIndex.get(eid) || [];
-      var best = null;
+      var start = null, end = null;
       for (var d = 0; d < defs.length; d++) {
         var defId = defs[d];
         var def = defCache.get(defId);
@@ -566,18 +568,21 @@ window.SOS = window.SOS || {};
           var m = ISO_DATE_RE.exec(v);
           if (!m) continue;
           var ts = Date.UTC(+m[1], +m[2] - 1, +m[3]);
-          if (best === null || ts < best) best = ts;
+          if (start === null || ts < start) start = ts;
+          if (end === null || ts > end) end = ts;
         }
       }
-      if (best !== null) result.set(eid, best);
+      if (start !== null) result.set(eid, { start: start, end: end });
       if (idx % 500 === 0) {
         post('progress', { phase: 'timeline', percent: Math.round(100 * idx / Math.max(ids.length, 1)) });
         await yieldFrame();
       }
     }
 
-    this._timelineDates = result;
-    var uniqueTs = Array.from(new Set(Array.from(result.values()))).sort(function (a, b) { return a - b; });
+    this._timelineRanges = result;
+    var boundarySet = new Set();
+    result.forEach(function (r) { boundarySet.add(r.start); boundarySet.add(r.end); });
+    var uniqueTs = Array.from(boundarySet).sort(function (a, b) { return a - b; });
     return { dates: uniqueTs, elementsCount: result.size };
   };
 

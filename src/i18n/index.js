@@ -76,6 +76,9 @@ export const tr = {
     timelineEmpty: 'Bu modelde tarih içeren özellik bulunamadı.',
     timelineElements: '{count} elemanda tarih bilgisi bulundu',
     timelineClear: 'Tümünü Göster',
+    timelinePlay: 'Oynat',
+    timelinePause: 'Duraklat',
+    timelineInProgress: 'Turuncu: devam eden elemanlar',
   },
   tree: {
     structure: 'Yapı', type: 'Tip', searchPlaceholder: 'Mekan veya eleman ara...',
@@ -249,6 +252,9 @@ export const en = {
     timelineEmpty: 'No date-bearing properties were found in this model.',
     timelineElements: '{count} elements have date info',
     timelineClear: 'Show all',
+    timelinePlay: 'Play',
+    timelinePause: 'Pause',
+    timelineInProgress: 'Orange: elements in progress',
   },
   tree: {
     structure: 'Structure', type: 'Type', searchPlaceholder: 'Search spaces or elements...',
@@ -422,6 +428,9 @@ export const de = {
     timelineEmpty: 'In diesem Modell wurden keine datumsbehafteten Eigenschaften gefunden.',
     timelineElements: '{count} Elemente mit Datumsinformationen gefunden',
     timelineClear: 'Alle anzeigen',
+    timelinePlay: 'Abspielen',
+    timelinePause: 'Pause',
+    timelineInProgress: 'Orange: Elemente in Arbeit',
   },
   tree: {
     structure: 'Struktur', type: 'Typ', searchPlaceholder: 'Räume oder Elemente suchen...',
@@ -595,6 +604,9 @@ export const ar = {
     timelineEmpty: 'لم يتم العثور على خصائص تحتوي على تاريخ في هذا النموذج.',
     timelineElements: 'تم العثور على معلومات تاريخ في {count} عنصر',
     timelineClear: 'إظهار الكل',
+    timelinePlay: 'تشغيل',
+    timelinePause: 'إيقاف مؤقت',
+    timelineInProgress: 'برتقالي: العناصر قيد التنفيذ',
   },
   tree: {
     structure: 'الهيكل', type: 'النوع', searchPlaceholder: 'ابحث عن مساحات أو عناصر...',
@@ -768,6 +780,9 @@ export const ru = {
     timelineEmpty: 'В этой модели не найдено свойств с датами.',
     timelineElements: 'Информация о датах найдена у {count} элементов',
     timelineClear: 'Показать всё',
+    timelinePlay: 'Воспроизвести',
+    timelinePause: 'Пауза',
+    timelineInProgress: 'Оранжевый: элементы в процессе',
   },
   tree: {
     structure: 'Структура', type: 'Тип', searchPlaceholder: 'Поиск помещений или элементов...',
@@ -941,6 +956,9 @@ export const es = {
     timelineEmpty: 'No se encontraron propiedades con fechas en este modelo.',
     timelineElements: 'Se encontró información de fecha en {count} elementos',
     timelineClear: 'Mostrar todo',
+    timelinePlay: 'Reproducir',
+    timelinePause: 'Pausar',
+    timelineInProgress: 'Naranja: elementos en curso',
   },
   tree: {
     structure: 'Estructura', type: 'Tipo', searchPlaceholder: 'Buscar espacios o elementos...',
@@ -1114,6 +1132,9 @@ export const fr = {
     timelineEmpty: 'Aucune propriété contenant une date n\'a été trouvée dans ce modèle.',
     timelineElements: 'Informations de date trouvées sur {count} éléments',
     timelineClear: 'Tout afficher',
+    timelinePlay: 'Lecture',
+    timelinePause: 'Pause',
+    timelineInProgress: 'Orange : éléments en cours',
   },
   tree: {
     structure: 'Structure', type: 'Type', searchPlaceholder: 'Rechercher des espaces ou des éléments...',
@@ -1287,6 +1308,9 @@ export const pt = {
     timelineEmpty: 'Nenhuma propriedade com data foi encontrada neste modelo.',
     timelineElements: 'Informações de data encontradas em {count} elementos',
     timelineClear: 'Mostrar tudo',
+    timelinePlay: 'Reproduzir',
+    timelinePause: 'Pausar',
+    timelineInProgress: 'Laranja: elementos em andamento',
   },
   tree: {
     structure: 'Estrutura', type: 'Tipo', searchPlaceholder: 'Pesquisar espaços ou elementos...',
@@ -1460,6 +1484,9 @@ export const it = {
     timelineEmpty: 'Nessuna proprietà con data trovata in questo modello.',
     timelineElements: 'Informazioni sulla data trovate in {count} elementi',
     timelineClear: 'Mostra tutto',
+    timelinePlay: 'Riproduci',
+    timelinePause: 'Pausa',
+    timelineInProgress: 'Arancione: elementi in corso',
   },
   tree: {
     structure: 'Struttura', type: 'Tipo', searchPlaceholder: 'Cerca spazi o elementi...',
@@ -1633,6 +1660,9 @@ export const zh = {
     timelineEmpty: '此模型中未找到包含日期的属性。',
     timelineElements: '在 {count} 个构件中找到日期信息',
     timelineClear: '显示全部',
+    timelinePlay: '播放',
+    timelinePause: '暂停',
+    timelineInProgress: '橙色：正在进行的构件',
   },
   tree: {
     structure: '结构', type: '类型', searchPlaceholder: '搜索空间或构件...',
