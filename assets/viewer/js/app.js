@@ -1817,11 +1817,10 @@
   on('layerSeparate', function (p) { explode.setLayer(p.axis, p.factor || 0); });
   on('xray', function (p) { visibility.setXray(!!p.enabled); });
 
-  /* Kat gecisi: secilen kati sigdirip diger katlari 3B'de tamamen gizlemek
-   *  yerine saydam "hayalet" olarak birakir (bkz. VisibilityTool.showFloorGhost) -
-   *  boylece kullanici referans olarak binanin geri kalanini da secebilir.
-   *  applyStorey hem RN'den gelen showStorey komutu hem de plan panosundaki
-   *  iki-parmak dikey kaydirma jesti (bkz. setupPlanPane) tarafindan kullanilir. */
+  /* Kat gecisi: secilen kat gorunur kalir, diger tum katlar 3B'de tamamen
+   *  gizlenir (bkz. VisibilityTool.showFloorGhost). applyStorey hem RN'den
+   *  gelen showStorey komutu hem de plan panosundaki iki-parmak dikey
+   *  kaydirma jesti (bkz. setupPlanPane) tarafindan kullanilir. */
   function applyStorey(id) {
     if (!model || !model.storeyElements) return;
     currentStoreyId = id;
