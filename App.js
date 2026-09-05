@@ -16,6 +16,7 @@ import SettingsScreen from './src/screens/SettingsScreen';
 import PaywallScreen from './src/screens/PaywallScreen';
 import LegalScreen from './src/screens/LegalScreen';
 import FeedbackScreen from './src/screens/FeedbackScreen';
+import GlossaryScreen from './src/screens/GlossaryScreen';
 import { upsertModel, getModel } from './src/db/database';
 import { ModelFileError, importSharedIfcFile } from './src/services/modelFiles';
 
@@ -91,6 +92,7 @@ function Root() {
         <Stack.Screen name="Paywall" component={PaywallScreen} options={{ animation: 'slide_from_bottom', gestureEnabled: true }} />
         <Stack.Screen name="Legal" component={LegalScreen} options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="Feedback" component={FeedbackScreen} options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="Glossary" component={GlossaryScreen} options={{ animation: 'slide_from_right' }} />
       </Stack.Navigator>
     </NavigationContainer>
   );

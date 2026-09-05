@@ -126,6 +126,11 @@ export default function SettingsScreen({ navigation }) {
 
         <SectionTitle>{t('settings.about')}</SectionTitle>
         <Row
+          label={t('settings.glossary')}
+          icon="book-outline"
+          onPress={() => navigation.navigate('Glossary')}
+        />
+        <Row
           label={t('settings.replayOnboarding')}
           icon="play-circle-outline"
           onPress={() => navigation.navigate('Onboarding')}

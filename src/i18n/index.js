@@ -113,6 +113,7 @@ export const tr = {
     privacyPolicy: 'Gizlilik Politikası', termsOfUse: 'Kullanım Şartları',
     feedback: 'Geri Bildirim', sendFeedback: 'Geri Bildirim Gönder',
     replayOnboarding: 'Tanıtımı Tekrar Göster',
+    glossary: 'IFC Sözlüğü',
     rtlRestartTitle: 'Yeniden başlatma gerekli', rtlRestartBody: 'Yazı yönü değişikliğinin uygulanması için lütfen uygulamayı kapatıp yeniden açın.',
   },
   legal: {
@@ -173,6 +174,12 @@ export const tr = {
     noGeometry: 'Dosyada görüntülenebilir 3B geometri bulunamadı.',
     viewerCrashed: 'Görüntüleyici beklenmedik şekilde durdu.',
     lowMemory: 'Model cihaz belleğinden büyük görünüyor. Daha küçük bir dosya dene.',
+  },
+  glossary: {
+    title: 'IFC Sözlüğü',
+    subtitle: 'Model açmadan da göz atabilirsin. Her IFC eleman tipinin sade dilde açıklaması.',
+    searchPlaceholder: 'Tip veya ada göre ara...',
+    empty: 'Sonuç bulunamadı.',
   },
 };
 
@@ -289,6 +296,7 @@ export const en = {
     privacyPolicy: 'Privacy Policy', termsOfUse: 'Terms of Use',
     feedback: 'Feedback', sendFeedback: 'Send Feedback',
     replayOnboarding: 'Replay Introduction',
+    glossary: 'IFC Glossary',
     rtlRestartTitle: 'Restart required', rtlRestartBody: 'Please close and reopen the app for the text direction change to take effect.',
   },
   legal: {
@@ -349,6 +357,12 @@ export const en = {
     noGeometry: 'No displayable 3D geometry was found in this file.',
     viewerCrashed: 'The viewer stopped unexpectedly.',
     lowMemory: 'This model looks larger than the device memory. Try a smaller file.',
+  },
+  glossary: {
+    title: 'IFC Glossary',
+    subtitle: 'Browse it without opening a model. Plain-language definitions for every IFC element type.',
+    searchPlaceholder: 'Search by type or name...',
+    empty: 'No results found.',
   },
 };
 
@@ -465,6 +479,7 @@ export const de = {
     privacyPolicy: 'Datenschutzerklärung', termsOfUse: 'Nutzungsbedingungen',
     feedback: 'Feedback', sendFeedback: 'Feedback senden',
     replayOnboarding: 'Einführung erneut anzeigen',
+    glossary: 'IFC-Glossar',
     rtlRestartTitle: 'Neustart erforderlich', rtlRestartBody: 'Bitte schließe die App und öffne sie erneut, damit die Änderung der Textrichtung wirksam wird.',
   },
   legal: {
@@ -525,6 +540,12 @@ export const de = {
     noGeometry: 'In dieser Datei wurde keine darstellbare 3D-Geometrie gefunden.',
     viewerCrashed: 'Der Viewer wurde unerwartet beendet.',
     lowMemory: 'Dieses Modell scheint größer als der Gerätespeicher zu sein. Versuche eine kleinere Datei.',
+  },
+  glossary: {
+    title: 'IFC-Glossar',
+    subtitle: 'Auch ohne geöffnetes Modell durchsuchbar. Einfache Erklärungen für jeden IFC-Elementtyp.',
+    searchPlaceholder: 'Nach Typ oder Name suchen...',
+    empty: 'Keine Ergebnisse gefunden.',
   },
 };
 
@@ -641,6 +662,7 @@ export const ar = {
     privacyPolicy: 'سياسة الخصوصية', termsOfUse: 'شروط الاستخدام',
     feedback: 'الملاحظات', sendFeedback: 'إرسال ملاحظات',
     replayOnboarding: 'إعادة عرض المقدمة',
+    glossary: 'قاموس IFC',
     rtlRestartTitle: 'إعادة التشغيل مطلوبة', rtlRestartBody: 'يرجى إغلاق التطبيق وإعادة فتحه لتفعيل تغيير اتجاه النص.',
   },
   legal: {
@@ -701,6 +723,12 @@ export const ar = {
     noGeometry: 'لم يتم العثور على هندسة ثلاثية الأبعاد قابلة للعرض في هذا الملف.',
     viewerCrashed: 'توقف العارض بشكل غير متوقع.',
     lowMemory: 'يبدو أن هذا النموذج أكبر من ذاكرة الجهاز. جرّب ملفاً أصغر.',
+  },
+  glossary: {
+    title: 'قاموس IFC',
+    subtitle: 'يمكنك تصفحه دون فتح نموذج. تعريفات بلغة بسيطة لكل نوع من عناصر IFC.',
+    searchPlaceholder: 'ابحث حسب النوع أو الاسم...',
+    empty: 'لم يتم العثور على نتائج.',
   },
 };
 
@@ -817,6 +845,7 @@ export const ru = {
     privacyPolicy: 'Политика конфиденциальности', termsOfUse: 'Условия использования',
     feedback: 'Обратная связь', sendFeedback: 'Отправить отзыв',
     replayOnboarding: 'Показать введение снова',
+    glossary: 'Глоссарий IFC',
     rtlRestartTitle: 'Требуется перезапуск', rtlRestartBody: 'Пожалуйста, закройте и снова откройте приложение, чтобы изменение направления текста вступило в силу.',
   },
   legal: {
@@ -877,6 +906,12 @@ export const ru = {
     noGeometry: 'В этом файле не найдено отображаемой 3D-геометрии.',
     viewerCrashed: 'Просмотрщик неожиданно остановился.',
     lowMemory: 'Эта модель, похоже, больше, чем память устройства. Попробуйте файл поменьше.',
+  },
+  glossary: {
+    title: 'Глоссарий IFC',
+    subtitle: 'Можно просматривать без открытия модели. Простые объяснения для каждого типа элементов IFC.',
+    searchPlaceholder: 'Поиск по типу или названию...',
+    empty: 'Результатов не найдено.',
   },
 };
 
@@ -993,6 +1028,7 @@ export const es = {
     privacyPolicy: 'Política de privacidad', termsOfUse: 'Términos de uso',
     feedback: 'Comentarios', sendFeedback: 'Enviar comentarios',
     replayOnboarding: 'Volver a ver la introducción',
+    glossary: 'Glosario IFC',
     rtlRestartTitle: 'Reinicio necesario', rtlRestartBody: 'Cierra y vuelve a abrir la aplicación para que el cambio de dirección del texto surta efecto.',
   },
   legal: {
@@ -1053,6 +1089,12 @@ export const es = {
     noGeometry: 'No se encontró geometría 3D visualizable en este archivo.',
     viewerCrashed: 'El visor se detuvo inesperadamente.',
     lowMemory: 'Este modelo parece más grande que la memoria del dispositivo. Prueba con un archivo más pequeño.',
+  },
+  glossary: {
+    title: 'Glosario IFC',
+    subtitle: 'Puedes consultarlo sin abrir un modelo. Definiciones en lenguaje sencillo para cada tipo de elemento IFC.',
+    searchPlaceholder: 'Buscar por tipo o nombre...',
+    empty: 'No se encontraron resultados.',
   },
 };
 
@@ -1169,6 +1211,7 @@ export const fr = {
     privacyPolicy: 'Politique de confidentialité', termsOfUse: 'Conditions d\'utilisation',
     feedback: 'Retour', sendFeedback: 'Envoyer un retour',
     replayOnboarding: 'Revoir l\'introduction',
+    glossary: 'Glossaire IFC',
     rtlRestartTitle: 'Redémarrage requis', rtlRestartBody: 'Veuillez fermer puis rouvrir l\'application pour que le changement de sens du texte prenne effet.',
   },
   legal: {
@@ -1229,6 +1272,12 @@ export const fr = {
     noGeometry: 'Aucune géométrie 3D affichable n\'a été trouvée dans ce fichier.',
     viewerCrashed: 'Le visualiseur s\'est arrêté de manière inattendue.',
     lowMemory: 'Ce modèle semble plus volumineux que la mémoire de l\'appareil. Essayez un fichier plus petit.',
+  },
+  glossary: {
+    title: 'Glossaire IFC',
+    subtitle: 'Consultable sans ouvrir de modèle. Définitions en langage simple pour chaque type d\'élément IFC.',
+    searchPlaceholder: 'Rechercher par type ou par nom...',
+    empty: 'Aucun résultat trouvé.',
   },
 };
 
@@ -1345,6 +1394,7 @@ export const pt = {
     privacyPolicy: 'Política de Privacidade', termsOfUse: 'Termos de Uso',
     feedback: 'Feedback', sendFeedback: 'Enviar feedback',
     replayOnboarding: 'Rever introdução',
+    glossary: 'Glossário IFC',
     rtlRestartTitle: 'Reinicialização necessária', rtlRestartBody: 'Feche e reabra o aplicativo para que a mudança de direção do texto tenha efeito.',
   },
   legal: {
@@ -1405,6 +1455,12 @@ export const pt = {
     noGeometry: 'Nenhuma geometria 3D exibível foi encontrada neste arquivo.',
     viewerCrashed: 'O visualizador parou inesperadamente.',
     lowMemory: 'Este modelo parece maior que a memória do dispositivo. Tente um arquivo menor.',
+  },
+  glossary: {
+    title: 'Glossário IFC',
+    subtitle: 'Você pode consultar sem abrir um modelo. Definições em linguagem simples para cada tipo de elemento IFC.',
+    searchPlaceholder: 'Pesquisar por tipo ou nome...',
+    empty: 'Nenhum resultado encontrado.',
   },
 };
 
@@ -1521,6 +1577,7 @@ export const it = {
     privacyPolicy: 'Informativa sulla privacy', termsOfUse: 'Termini di utilizzo',
     feedback: 'Feedback', sendFeedback: 'Invia feedback',
     replayOnboarding: 'Rivedi introduzione',
+    glossary: 'Glossario IFC',
     rtlRestartTitle: 'Riavvio necessario', rtlRestartBody: 'Chiudi e riapri l\'app affinché il cambio di direzione del testo abbia effetto.',
   },
   legal: {
@@ -1581,6 +1638,12 @@ export const it = {
     noGeometry: 'Nessuna geometria 3D visualizzabile trovata in questo file.',
     viewerCrashed: 'Il visualizzatore si è arrestato inaspettatamente.',
     lowMemory: 'Questo modello sembra più grande della memoria del dispositivo. Prova un file più piccolo.',
+  },
+  glossary: {
+    title: 'Glossario IFC',
+    subtitle: 'Puoi consultarlo senza aprire un modello. Definizioni in linguaggio semplice per ogni tipo di elemento IFC.',
+    searchPlaceholder: 'Cerca per tipo o nome...',
+    empty: 'Nessun risultato trovato.',
   },
 };
 
@@ -1697,6 +1760,7 @@ export const zh = {
     privacyPolicy: '隐私政策', termsOfUse: '使用条款',
     feedback: '反馈', sendFeedback: '发送反馈',
     replayOnboarding: '重新观看介绍',
+    glossary: 'IFC 术语表',
     rtlRestartTitle: '需要重启', rtlRestartBody: '请关闭并重新打开应用，以使文字方向的更改生效。',
   },
   legal: {
@@ -1757,6 +1821,12 @@ export const zh = {
     noGeometry: '此文件中未找到可显示的 3D 几何体。',
     viewerCrashed: '查看器意外停止。',
     lowMemory: '此模型看起来大于设备内存，请尝试更小的文件。',
+  },
+  glossary: {
+    title: 'IFC 术语表',
+    subtitle: '无需打开模型即可浏览。每种 IFC 构件类型的通俗解释。',
+    searchPlaceholder: '按类型或名称搜索...',
+    empty: '未找到结果。',
   },
 };
 
