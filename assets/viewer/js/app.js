@@ -1637,7 +1637,12 @@
     }
 
     needsRender = moving || pulsing || (performance.now() < warmupUntil);
-    adaptQuality(dt);
+    // Kat gecisi/kesit/model yukleme gibi yapisal degisikliklerden hemen sonraki
+    // warmup penceresi, tek seferlik kurulum maliyeti (ör. hayalet mesh olusturma)
+    // yuzunden gercekci olmayan dusuk FPS gosterebilir. Bu pencere olcume HIC
+    // katilmazsa tek bir yavas kare kalici bir pixelRatio dususune (bulanik
+    // gorunum) yol acmaz; warmup bitince olcum sifirdan, kararli sahneyle baslar.
+    if (warmingUp) { quality.acc = 0; quality.frames = 0; } else { adaptQuality(dt); }
   }
 
   /* ---------------- RN -> WebView komutlari ---------------- */
