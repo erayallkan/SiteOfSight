@@ -55,6 +55,23 @@ window.SOS = window.SOS || {};
     if (typeof WebIFC === 'undefined') {
       throw new Error('web-ifc yuklenemedi (vendor eksik). "npm run vendor" calistirin.');
     }
+    // NOT: vendor'ladigimiz web-ifc-api-iife.js derlemesi Emscripten PTHREAD
+    // calisma zamanini icerir; Init() sirasinda PThread.initMainThread()
+    // navigator.hardwareConcurrency kadar Web Worker acmaya CALISIR, her biri
+    // ayri bir "web-ifc-mt.worker.js" dosyasini yuklemeye calisir. build-viewer.mjs
+    // TEK DOSYALIK HTML gereksinimi yuzunden (bkz. AGENTS.md) sadece
+    // three.min.js + web-ifc-api-iife.js + web-ifc.wasm gomuyor - bu worker
+    // dosyasi HICBIR YERDE yok/servis edilmiyor. WebView'lerde (ozellikle iOS
+    // WKWebView/Expo Go) bu worker'lar yuklenemiyor/kararsiz kaliyor; sonuc
+    // olarak model biraz buyuyunce CPU/bellek dengesi bozulup WebGL baglami
+    // tekrar tekrar kayboluyor (goz kirpan siyah ekran + donma). IFC ayristirma
+    // zaten senkron/tek-threadli calisiyor (StreamAllMeshes), threading'e
+    // gercekte ihtiyac yok - Init() cagrilmadan once hardwareConcurrency'i 0
+    // gostererek worker havuzunu SIFIR boyutta baslatiyoruz.
+    try {
+      Object.defineProperty(navigator, 'hardwareConcurrency', { value: 0, configurable: true });
+    } catch (e) { post('log', { message: 'hardwareConcurrency override edilemedi: ' + (e && e.message ? e.message : e) }); }
+
     this.api = new WebIFC.IfcAPI();
 
     if (wasmBytes && wasmBytes.length) {
@@ -112,12 +129,28 @@ window.SOS = window.SOS || {};
 
     post('progress', { phase: 'geometry', percent: 20 });
     await yieldFrame();
-    await this._buildGeometry();
+    await this._buildGeometry(); // GERCEK ayristirma burada; bunun disindaki
+    // adimlar (agac/oda etiketleri) sadece EK bilgi uretir - biri patlarsa
+    // geometri zaten yuklendigi icin kullaniciya yanlislikla "dosya
+    // ayristirilamadi" gosterip TUM modeli kaybettirmemeliyiz (bkz. asagidaki
+    // try/catch'ler). Once bazi IFC ihraclarinda beklenmeyen Pset/Quantity
+    // sekilleri veya eksik IFCPROJECT bu adimlarda istisna firlatip gecerli
+    // bir modelin goruntulenmesini engelliyordu.
 
     post('progress', { phase: 'tree', percent: 85 });
     await yieldFrame();
-    this.tree = this._buildSpatialTree();
-    this._buildRoomLabels();
+    try {
+      this.tree = this._buildSpatialTree();
+    } catch (e) {
+      post('log', { message: 'agac olusturulamadi: ' + (e && e.message ? e.message : e) });
+      this.tree = { root: { id: -1, name: 'Model', type: 'IFCPROJECT', hasGeometry: false, children: [] }, truncated: false, byType: {} };
+    }
+    try {
+      this._buildRoomLabels();
+    } catch (e) {
+      post('log', { message: 'oda etiketleri olusturulamadi: ' + (e && e.message ? e.message : e) });
+      this.roomLabels = new Map();
+    }
 
     post('progress', { phase: 'done', percent: 100 });
     this.stats.ms = Date.now() - t0;

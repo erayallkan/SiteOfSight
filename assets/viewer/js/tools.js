@@ -4,7 +4,38 @@ window.SOS = window.SOS || {};
   'use strict';
 
   var post = SOS.bridge.post;
-  var ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
+  // NOT: gizli eleman matrisi ONCEDEN sabit makeScale(0,0,0) idi - bu, oteleme
+  // (translation) bilesenini de sifirlayip elemani DUNYA ORIJININE tasiyordu.
+  // InstancedMesh.computeBoundingSphere() TUM instance'lari (gizli olanlar dahil)
+  // tarar; orijine tasinan gizli elemanlar grubun sinir kuresini gercek
+  // konumundan orijine dogru cekip yari capini siskinlestiriyordu. Bu bozuk kure
+  // updateLod()'un ekran-alani hesabinda kullanildiginda (bkz. app.js), model
+  // orijininden uzak bir kat secildiginde (kat gecisi ghost modu) o katin
+  // gruplari "ekranda cok kucuk" sanilip tamamen gizleniyor - sahne siyah
+  // kaliyordu. Duzeltme: gizli eleman KENDI KONUMUNDA sifir olcekle birakilir
+  // (sadece scale sifirlanir, translation/rotation korunur) - boylece sinir
+  // kuresi gizli/gorunur ayrimindan etkilenmez.
+  //
+  // PERFORMANS NOTU: rotasyonu korumak icin ilk surumde decompose/compose
+  // (Quaternion.setFromRotationMatrix dahil - trig icerir) kullanilmisti.
+  // Buyuk modellerde (108MB+, on binlerce eleman) kat gecisinde TUM modelin
+  // gizli elemanlari icin bu matrix4->quaternion cikarimi ana thread'i
+  // dondurup "kat gecisinde donma" sikayetine yol aciyordu. Rotasyonun
+  // GERCEKTE onemi yok: olcek sifir oldugu icin eleman zaten gorunmez, ve
+  // sinir kuresi artik gizli/gorunur degisikliginde YENIDEN HESAPLANMIYOR
+  // (asagida _refresh - bir kez, olusturulduktan sonra hesaplanir). Bu
+  // yuzden sadece oteleme (translation) korunur, rotasyon/olcek dogrudan
+  // matris elemanlarina yazilarak (decompose'siz) sifirlanir - cok daha ucuz.
+  var _hideM = new THREE.Matrix4();
+  function hiddenMatrixAt(base) {
+    var e = base.elements;
+    return _hideM.set(
+      0, 0, 0, e[12],
+      0, 0, 0, e[13],
+      0, 0, 0, e[14],
+      0, 0, 0, 1
+    );
+  }
 
   /* ---------------- Kesit (Section) ---------------- */
 
@@ -84,7 +115,7 @@ window.SOS = window.SOS || {};
     var model = this.env.model;
     var g = model.groups[ref.g];
     if (!g) return;
-    g.mesh.setMatrixAt(ref.i, visible ? g.base[ref.i] : ZERO);
+    g.mesh.setMatrixAt(ref.i, visible ? g.base[ref.i] : hiddenMatrixAt(g.base[ref.i]));
     g.visibleFlags[ref.i] = visible ? 1 : 0;
     g.mesh.instanceMatrix.needsUpdate = true;
   };
@@ -108,7 +139,7 @@ window.SOS = window.SOS || {};
       var ghost = new THREE.InstancedMesh(group.mesh.geometry, mat, group.base.length);
       ghost.frustumCulled = false;
       ghost.visible = false;
-      for (var i = 0; i < group.base.length; i++) ghost.setMatrixAt(i, ZERO);
+      for (var i = 0; i < group.base.length; i++) ghost.setMatrixAt(i, hiddenMatrixAt(group.base[i]));
       ghost.instanceMatrix.needsUpdate = true;
       model.root.add(ghost);
       this._ghostMeshes.push(ghost);
@@ -119,7 +150,7 @@ window.SOS = window.SOS || {};
     var ghost = this._ghostMeshes[ref.g];
     if (!ghost) return;
     var base = this.env.model.groups[ref.g].base[ref.i];
-    ghost.setMatrixAt(ref.i, visible ? base : ZERO);
+    ghost.setMatrixAt(ref.i, visible ? base : hiddenMatrixAt(base));
     ghost.instanceMatrix.needsUpdate = true;
   };
 
@@ -139,12 +170,19 @@ window.SOS = window.SOS || {};
         if (ghostActive) self._setGhostInstance(refs[i], ghostVisible);
       }
     });
-    for (var g = 0; g < model.groups.length; g++) {
-      model.groups[g].mesh.computeBoundingSphere();
-      if (this._ghostMeshes) {
-        this._ghostMeshes[g].visible = ghostActive;
-        this._ghostMeshes[g].computeBoundingSphere();
-      }
+    // PERFORMANS NOTU: burada ONCEDEN her _refresh() cagrisinda (yani her kat
+    // gecisinde/gizle-goster/izole islemide) TUM gruplar icin computeBoundingSphere()
+    // yeniden hesaplaniyordu - O(toplam instance sayisi) is, 108MB+ gibi buyuk
+    // modellerde kat gecisini saniyelerce donduran ana sebeplerden biriydi.
+    // Bu GEREKSIZDI: (1) ana mesh'in kuresi ifc.js'te olusturulurken zaten
+    // hesaplaniyor ve yukaridaki hiddenMatrixAt() SADECE olcegi sifirlayip
+    // konumu koridugu icin gizli/gorunur degisikligi kureyi degistirmiyor;
+    // (2) hayalet (ghost) mesh'ler zaten frustumCulled=false (bkz.
+    // _ensureGhostMeshes) - kureleri hic bir zaman kullanilmiyor (ne LOD ne
+    // de frustum culling icin - updateLod() sadece model.groups'u, ghost
+    // mesh'leri degil, dolasir). Sadece gorunurluk bayragi guncellenir.
+    if (this._ghostMeshes) {
+      for (var g = 0; g < this._ghostMeshes.length; g++) this._ghostMeshes[g].visible = ghostActive;
     }
     this.env.requestRender();
   };

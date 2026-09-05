@@ -35,6 +35,7 @@ const ERROR_MESSAGES = {
   WASM_TRANSFER_FAILED: 'errors.unreadable',
   TRANSFER_FAILED: 'errors.unreadable',
   RENDERER_GONE: 'errors.lowMemory',
+  GL_CONTEXT_LOST: 'errors.lowMemory',
   VIEWER_ASSET_MISSING: 'errors.viewerCrashed',
   WEBVIEW_ERROR: 'errors.viewerCrashed',
 };
@@ -139,8 +140,14 @@ export default function ViewerScreen({ route, navigation }) {
       if (__DEV__) console.log('[viewer:non-fatal]', err?.code, err?.message);
       return;
     }
+    // NOT: err.code bilinen listede yoksa (ör. webview'daki genel JS_ERROR/
+    // JS_REJECTION yakalayicilari - bkz. bridge.js window.onerror) asagidaki
+    // fallback tetiklenir. Boyle durumlarda detay satirinin BOS kalmamasi icin
+    // (kullaniciya/gelistiriciye gercek nedeni gostermeden genel bir "parse
+    // hatasi" mesaji ile yanlis yonlendirmemek adina) ham hatayi da katistiriyoruz.
     const key = ERROR_MESSAGES[err?.code] || 'errors.parseFailed';
-    setError({ key, detail: err?.message, code: err?.code });
+    const detail = err?.message || (err?.code ? `(${err.code})` : JSON.stringify(err || {}));
+    setError({ key, detail, code: err?.code || 'UNKNOWN' });
   }, []);
 
   /* ---------------- Genel geri al / ileri al ----------------

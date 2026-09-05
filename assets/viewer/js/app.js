@@ -163,6 +163,12 @@
       alpha: false,
       powerPreference: 'high-performance',
       stencil: false,
+      // Buyuk binalarda near/far araligi (fit() bkz.) birkac milyon:1 orana
+      // ulasabiliyor; standart derinlik tamponu bu oranda coker ve genis
+      // duz yuzeylerde (tavan/doseme) z-fighting sonucu "bulanik"/benekli
+      // gorunum olusuyordu. Logaritmik derinlik tamponu bu orani sorun
+      // olmaktan cikarir.
+      logarithmicDepthBuffer: true,
       // Model onizleme gorseli (thumbnail) icin canvas.toDataURL cizim
       // tamamlandiktan hemen sonra okunabilsin diye framebuffer korunur.
       preserveDrawingBuffer: true
@@ -272,11 +278,50 @@
     });
     canvas.addEventListener('pointercancel', function () { walkTapDown = null; });
 
+    /* WebGL baglami kaybi (buyuk modellerde GPU bellek baskisi altinda
+     *  tetiklenebilir) COGU ZAMAN GECICIDIR - preventDefault() cagirilirsa
+     *  tarayici/WebView kisa surede baglami kendiliginden GERI YUKLER
+     *  (webglcontextrestored). ONCEDEN ilk kayip anda dogrudan RN'e fatal
+     *  'error' gonderiliyordu; bu, baglam bir-iki saniye icinde kendiliginden
+     *  geri gelse bile kullaniciya GEREKSIZ YERE tam ekran hata (ve yanlislikla
+     *  "IFC dosyasi ayristirilamadi" gibi alakasiz bir mesaj - cunku GL_CONTEXT_LOST
+     *  RN tarafindaki hata haritasinda yoktu) gosteriyordu. Simdi bir sure
+     *  (GL_RESTORE_GRACE_MS) geri gelmesi beklenir; gelirse RN hic haberdar
+     *  edilmez, gelmezse GERCEKTEN fatal kabul edilip bildirilir. */
+    // NOT: bazi cihazlarda GPU zaten sinirin ucundayken baglam KAYBOLUP KISA
+    // SURE SONRA GERI GELIP HEMEN TEKRAR KAYBOLUYOR - ayni yuk hala orada
+    // oldugu icin dongu bir turlu stabillesmiyor. Sadece "6sn icinde geri
+    // gelmedi mi" bakmak bu durumda YANLIS: her kayip kendi 6sn'lik suresi
+    // icinde restore oldugundan fatal HICBIR ZAMAN tetiklenmiyor - kullanici
+    // ekranin surekli kararip acilmasini ("goz kirpma") ve donmus gibi
+    // gorunen bir uygulamayla bas basa kaliyor. Bu yuzden ayrica bir PENCERE
+    // icindeki ART ARDA kayip SAYISI da izlenir; kisa surede cok sik kayip
+    // GERCEKTEN kararsiz demektir ve tek seferlik gecikmeli kayip kadar
+    // "iyi huylu" degildir - o durumda beklemeden fatal kabul edilir.
+    var GL_RESTORE_GRACE_MS = 6000;
+    var GL_FLAP_WINDOW_MS = 20000;
+    var GL_FLAP_LIMIT = 3;
+    var glLostTimer = null;
+    var glLossTimes = [];
     canvas.addEventListener('webglcontextlost', function (e) {
       e.preventDefault();
-      post('error', { code: 'GL_CONTEXT_LOST', message: 'WebGL context kayboldu' });
+      var now = performance.now();
+      glLossTimes.push(now);
+      glLossTimes = glLossTimes.filter(function (t) { return now - t < GL_FLAP_WINDOW_MS; });
+      if (glLostTimer) clearTimeout(glLostTimer);
+      if (glLossTimes.length >= GL_FLAP_LIMIT) {
+        glLostTimer = null;
+        post('error', { code: 'GL_CONTEXT_LOST', message: 'WebGL baglami kisa surede tekrar tekrar kayboluyor (GPU bellegi yetersiz olabilir - model cok buyuk).' });
+        return;
+      }
+      post('log', { message: 'WebGL context kayboldu, geri gelmesi bekleniyor' });
+      glLostTimer = setTimeout(function () {
+        glLostTimer = null;
+        post('error', { code: 'GL_CONTEXT_LOST', message: 'WebGL baglami geri gelmedi (GPU bellegi yetersiz olabilir - model cok buyuk).' });
+      }, GL_RESTORE_GRACE_MS);
     });
     canvas.addEventListener('webglcontextrestored', function () {
+      if (glLostTimer) { clearTimeout(glLostTimer); glLostTimer = null; }
       post('log', { message: 'WebGL context geri geldi' });
       warmup(1500);
     });
@@ -1659,6 +1704,20 @@
       var stats = await model.open(bytes);
       model.root.updateMatrixWorld(true);
       model.bbox.setFromObject(model.root);
+
+      // Buyuk modellerde GPU yuku ilk andan (renderer.compile + warmup'in
+      // zorla art arda cizdirdigi kareler) itibaren yuksektir - bu tam da
+      // WebGL baglaminin kaybolma ihtimalinin en yuksek oldugu andir.
+      // adaptQuality() FPS DUSTUKTEN SONRA (reaktif) pixelRatio'yu azaltir;
+      // buyuk bir model icin bunu BEKLEMEDEN, ucgen sayisina gore ONCEDEN
+      // dusuk baslatmak GPU'yu baslangicta rahatlatir ve "az buyuyunce
+      // baglam kaybi / donma" esigini yukseklir.
+      if (stats && stats.triangles > 2000000) {
+        var scaleDown = stats.triangles > 6000000 ? 0.6 : (stats.triangles > 3500000 ? 0.75 : 0.9);
+        quality.target = Math.min(quality.target, scaleDown);
+        quality.pixelRatio = quality.target;
+        renderer.setPixelRatio(quality.pixelRatio);
+      }
 
       walk.active = false;
       walkPicking = false;

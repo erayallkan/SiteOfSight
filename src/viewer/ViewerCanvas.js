@@ -146,7 +146,14 @@ const ViewerCanvas = forwardRef(function ViewerCanvas(props, ref) {
       case 'measureState': onMeasureState?.(payload); break;
       case 'walkStarted': onWalkStarted?.(payload); break;
       case 'fps': onFps?.(payload); break;
-      case 'error': onError?.(payload); break;
+      case 'error':
+        // Gercek nedeni her zaman Metro konsoluna yaz - RN tarafindaki hata
+        // katmani bilinmeyen bir 'code' icin genel bir mesaja duser ve o
+        // durumda ekranda detay satiri gorunmeyebilir (bkz. ViewerScreen
+        // handleError); konsol her zaman ham payload'i gosterir.
+        if (__DEV__) console.log('[viewer:error]', JSON.stringify(payload));
+        onError?.(payload);
+        break;
       case 'thumbnail': onThumbnail?.(payload); break;
       case 'timelineReady': onTimelineReady?.(payload); break;
       case 'storeyChanged': onStoreyChanged?.(payload); break;
